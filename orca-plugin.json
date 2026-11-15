@@ -1,0 +1,30 @@
+{
+  "manifestVersion": 2,
+  "execution": "trusted-worker",
+  "id": "git-panel",
+  "name": "Git Panel",
+  "version": "0.1.0",
+  "description": "An IntelliJ IDEA-style Git tool window for the focused workspace: local changes and commit, the Log with its graph and branches, diffs and histories in the editor area.",
+  "author": { "name": "Git Panel" },
+  "repository": "https://github.com/omerfarukgzr/orca-git-plugin",
+  "icon": "hosts/orca/icons/git.png",
+  "engines": { "orca": ">=1.4.248" },
+  "main": "hosts/orca/worker.mjs",
+  "pluginApi": 1,
+  "capabilities": [
+    { "kind": "workspace:read" },
+    { "kind": "workspace:write" }
+  ],
+  "contributes": {
+    "panels": [
+      { "id": "commit", "title": "Commit", "icon": "check", "entry": "hosts/orca/panels/commit.html", "ui": "html" },
+      { "id": "log", "title": "Git", "icon": "branch", "entry": "hosts/orca/panels/log.html", "ui": "html" }
+    ],
+    "customEditors": [
+      { "id": "view", "title": "Git Panel", "extensions": [".gitpanel"], "entry": "hosts/orca/panels/editor.html", "priority": "default", "icon": "hosts/orca/icons/git.png" }
+    ],
+    "newFiles": [
+      { "id": "git", "title": "Git", "extension": ".gitpanel", "icon": "hosts/orca/icons/git.png" }
+    ]
+  }
+}
