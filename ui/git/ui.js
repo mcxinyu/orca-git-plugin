@@ -434,10 +434,19 @@
   Git.statusColor = function (status) {
     return { M: 'var(--g-modified)', A: 'var(--g-added)', D: 'var(--g-deleted)', R: 'var(--g-modified)', '?': 'var(--g-unversioned)', C: 'var(--g-conflict)' }[status] || 'inherit';
   };
-  /** The file icon of a path (fileicons.js, Seti theme). */
+  /** The file icon of a path (fileicons.js: the host's theme, else Seti). */
   Git.fileIcon = function (path) {
     const html = Git.fileIcons ? Git.fileIcons.html(Git.fileName(path)) : '';
     if (html) return h('span.g-file-ic', { html, 'aria-hidden': 'true' });
     return Git.icon('file');
+  };
+  /** A folder of the work tree: the host theme's folder icon (HTML), or '' for IntelliJ's `nodes/folder`. */
+  Git.folderIconHTML = function (name, expanded) {
+    return Git.fileIcons ? Git.fileIcons.html(Git.fileName(name), { dir: true, expanded: !!expanded }) : '';
+  };
+  /** The same as an element: the host's icon, else IntelliJ's folder. */
+  Git.folderIcon = function (name, expanded) {
+    const html = Git.folderIconHTML(name, expanded);
+    return html ? h('span.g-file-ic', { html, 'aria-hidden': 'true' }) : Git.icon('nodes/folder');
   };
 })();

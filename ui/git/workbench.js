@@ -384,9 +384,13 @@
     if (Git.popupMenu) Git.popupMenu.close();
     state.tabs.forEach((tab) => { if (typeof tab.off === 'function') tab.off(); if (tab.el) { tab.el.remove(); tab.el = null; } });
     const host = document.getElementById('app');
+    // The editor tabs survive a rebuild, but taking them out of the page resets their scroll offsets while their
+    // virtual lists keep the rows of the old offset (a blank tab): put the offsets back, whose scroll event redraws.
+    const kept = edBody ? Array.from(edBody.querySelectorAll('*')).filter((e) => e.scrollTop || e.scrollLeft).map((e) => [e, e.scrollTop, e.scrollLeft]) : [];
     if (W.mode === 'workbench') { buildWorkbench(host); applyLayout(); }
     else if (W.mode === 'single') buildSingle(host, W.view);
     else if (W.mode === 'picker' && Git.picker) Git.picker.mount(host, W.pickerOpts || {});
+    kept.forEach(([e, top, left]) => { if (e.isConnected) { e.scrollTop = top; e.scrollLeft = left; } });
   };
 
   // ---------------------------------------------------------------- whole-page states

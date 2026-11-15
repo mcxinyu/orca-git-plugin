@@ -12,7 +12,7 @@
      `connection` { state: 'open'|'lost'|'reconnected', client }: after `reconnected` (the worker was restarted)
      the old subscriptions are gone; the store subscribes again and resyncs. Reads in flight are asked again.
    Git.host = Orca's hooks: openFile → Orca's editor (editor.open through the worker, when the repository is the
-     focused workspace), openExternal → orca.shell.openExternal, copy, prefs (localStorage, else memory),
+     focused workspace), look / onLookChange → the editor's font (editor.readTypography), openExternal → orca.shell.openExternal, copy, prefs (localStorage, else memory),
      hooks.showInLog → the Git Log panel.
    Git.orca = { start(view) -> Promise<hello>, request(name, input, o), onMessage(type, fn), workspace, stats() }
      (hosts/orca/panel.js). The product name the user sees (Git.host.product) and the storage prefix (Git.host.storagePrefix) are set by panel.js. */
@@ -308,6 +308,24 @@
     try { document.execCommand('copy'); } catch (e) { /* refused */ }
     ta.remove();
   }
+  // The code font of Orca's file editor (ui/git/look.js): `editor.readTypography` (no capability; panels and the custom
+  // editor; host API 1.6) and its `editor.typography.changed` event. lineHeight is pixels, 0 when automatic. Orca
+  // hands frames no interface font (its frame tokens are colours and the radius) and no file icon theme, so those stay
+  // the base's own. An Orca without the method (feature-detected with host.has, or a refused call) keeps the skin's.
+  const lookOf = (ty) => (ty && typeof ty === 'object'
+    ? { code: { family: ty.cssFontFamily || ty.fontFamily || '', size: ty.fontSize, lineHeight: ty.lineHeight } } : null);
+  function look() {
+    const host = window.orca && window.orca.host;
+    if (!host || typeof host.call !== 'function') return null;
+    try { if (typeof host.has === 'function' && !host.has('editor.readTypography')) return null; } catch (e) { return null; }
+    let answer;
+    try { answer = host.call('editor.readTypography', {}); } catch (e) { return null; }
+    return Promise.resolve(answer).then(lookOf, () => null);
+  }
+  function onLookChange(fn) {
+    try { if (window.orca && window.orca.on) window.orca.on('editor.typography.changed', (ty) => { const l = lookOf(ty); if (l) fn(l); }); } catch (e) { /* no editor events */ }
+    return () => {};
+  }
   const within = (a, b) => a === b || a.indexOf(b.replace(/\/$/, '') + '/') === 0;
   /** Orca's editor when the open repository is the focused workspace's; otherwise the caller shows the file itself. */
   function openFile(path, o) {
@@ -320,6 +338,8 @@
   Git.host = Object.assign({
     name: 'orca',
     openFile,
+    look,
+    onLookChange,
     openExternal(url) {
       try { if (window.orca && window.orca.shell) window.orca.shell.openExternal(String(url)).catch(() => {}); } catch (e) { /* refused */ }
     },
@@ -2711,11 +2731,20 @@ window.FileIconMaps = {"seti":{"file":"_default","glyphs":{"_R":["","#519aba"
   Git.statusColor = function (status) {
     return { M: 'var(--g-modified)', A: 'var(--g-added)', D: 'var(--g-deleted)', R: 'var(--g-modified)', '?': 'var(--g-unversioned)', C: 'var(--g-conflict)' }[status] || 'inherit';
   };
-  /** The file icon of a path (fileicons.js, Seti theme). */
+  /** The file icon of a path (fileicons.js: the host's theme, else Seti). */
   Git.fileIcon = function (path) {
     const html = Git.fileIcons ? Git.fileIcons.html(Git.fileName(path)) : '';
     if (html) return h('span.g-file-ic', { html, 'aria-hidden': 'true' });
     return Git.icon('file');
+  };
+  /** A folder of the work tree: the host theme's folder icon (HTML), or '' for IntelliJ's `nodes/folder`. */
+  Git.folderIconHTML = function (name, expanded) {
+    return Git.fileIcons ? Git.fileIcons.html(Git.fileName(name), { dir: true, expanded: !!expanded }) : '';
+  };
+  /** The same as an element: the host's icon, else IntelliJ's folder. */
+  Git.folderIcon = function (name, expanded) {
+    const html = Git.folderIconHTML(name, expanded);
+    return html ? h('span.g-file-ic', { html, 'aria-hidden': 'true' }) : Git.icon('nodes/folder');
   };
 })();
 ;
@@ -2818,6 +2847,10 @@ window.FileIconMaps = {"seti":{"file":"_default","glyphs":{"_R":["","#519aba"
     const isOpen = (n) => (open.has(n.id) ? open.get(n.id) : n.open !== false);
     const at = (id) => (index.has(id) ? index.get(id) : -1);
     const setSelected = (ids) => { selected = ids; selSet = new Set(ids); };
+    /** A work tree folder (`nodes/folder`; not a branch folder, kind 'folder') in the host's icon theme, open or
+        closed: its HTML, or '' for IntelliJ's icon (ui.js Git.folderIconHTML). */
+    const hostFolder = (n, folder) => (n.icon === 'nodes/folder' && n.kind !== 'folder' && typeof n.label === 'string' && Git.folderIconHTML
+      ? Git.folderIconHTML(n.label, folder && isOpen(n)) : '');
 
     function flatten() {
       rows = [];
@@ -2843,7 +2876,9 @@ window.FileIconMaps = {"seti":{"file":"_default","glyphs":{"_R":["","#519aba"
         const now = () => (index.has(n.id) ? rows[index.get(n.id)].node : n);
         row.appendChild(Git.checkbox({ checked: n.checked, onChange: (v) => o.onCheck && o.onCheck(now(), v) }));
       }
-      if (n.icon) row.appendChild(n.icon.nodeType ? n.icon : Git.icon(n.icon));
+      const dirIcon = hostFolder(n, folder);
+      if (dirIcon) row.appendChild(h('span.g-file-ic', { html: dirIcon, 'aria-hidden': 'true' }));
+      else if (n.icon) row.appendChild(n.icon.nodeType ? n.icon : Git.icon(n.icon));
       row.appendChild(h('span.g-row-label', { class: (n.bold ? 'bold ' : '') + (n.italic ? 'italic ' : '') + (n.strike ? 'strike' : ''), style: n.color ? { color: n.color } : null }, n.label));
       if (n.dim) row.appendChild(h('span.g-row-dim', n.dim));
       if (n.right) row.appendChild(h('span.g-row-right', n.right));
@@ -2860,7 +2895,7 @@ window.FileIconMaps = {"seti":{"file":"_default","glyphs":{"_R":["","#519aba"
     const part = (x) => (x == null ? '' : x.nodeType ? x.outerHTML : String(x));
     function signature() {
       return rows.map((r) => { const n = r.node; return [n.id, r.depth, n.children && n.children.length ? (isOpen(n) ? 'o' : 'c') : '', String(n.checked),
-        part(n.icon), part(n.label), n.bold ? 1 : 0, n.italic ? 1 : 0, n.strike ? 1 : 0, n.color || '', part(n.dim), part(n.right), n.tooltip || '', n.kind || '',
+        hostFolder(n, !!(n.children && n.children.length)) || part(n.icon), part(n.label), n.bold ? 1 : 0, n.italic ? 1 : 0, n.strike ? 1 : 0, n.color || '', part(n.dim), part(n.right), n.tooltip || '', n.kind || '',
         selSet.has(n.id) ? 1 : 0].join('\u0001'); }).join('\u0002') + '\u0003' + (empty ? empty.textContent : '');
     }
     let drawn = null;
@@ -3365,10 +3400,11 @@ window.FileIconMaps = {"seti":{"file":"_default","glyphs":{"_R":["","#519aba"
 })();
 ;
 /* ==== git/fileicons.js ==== */
-/* File icons in the Seti theme (VS Code's default), from the approved prototype's shell (shell-files.js
-   iconHTML). Data: ui/vendor/file-icons.js (window.FileIconMaps), font:
-   ui/img/file-icons/seti.woff (MIT, SETI-LICENSE.txt), styles: ui/css/shell.css (.ficon).
-   Git.fileIcons.html(name) -> HTML string ('' when the theme has no glyph for it). */
+/* File icons: the host's own theme when it gives one (Git.host.fileIcon, ui/git/look.js), else the Seti theme (VS
+   Code's default), from the approved prototype's shell (shell-files.js iconHTML). Data: ui/vendor/file-icons.js
+   (window.FileIconMaps), font: ui/img/file-icons/seti.woff (MIT, SETI-LICENSE.txt), styles: ui/css/shell.css (.ficon).
+   Git.fileIcons.html(name, { dir, expanded }) -> HTML string ('' when there is none: no glyph, or a folder the host
+   draws no icon for). */
 (function () {
   'use strict';
   const Git = window.Git;
@@ -3390,8 +3426,21 @@ window.FileIconMaps = {"seti":{"file":"_default","glyphs":{"_R":["","#519aba"
     return map.glyphs[id] || map.glyphs[map.file] || null;
   }
 
+  /** The host's icon (Git.host.fileIcon(name, { dir, expanded }) -> HTML or null), when it has one. */
+  function fromHost(name, o) {
+    if (!Git.host || typeof Git.host.fileIcon !== 'function') return '';
+    let out = null;
+    try { out = Git.host.fileIcon(name, { dir: !!o.dir, expanded: !!o.expanded }); } catch (e) { out = null; }
+    return typeof out === 'string' ? out : '';
+  }
+
   Git.fileIcons = {
-    html(name) {
+    /** `o.dir`: a folder (`o.expanded`: shown open). Folders have an icon only from the host: '' keeps IntelliJ's
+        folder icon (ui-tree.js). */
+    html(name, o) {
+      o = o || {};
+      const host = fromHost(name, o);
+      if (host || o.dir) return host;
       if (memo.has(name)) return memo.get(name);
       const g = seti(name);
       const out = g ? '<span class="ficon ficon-seti" style="color:' + esc(g[1]) + '">' + esc(g[0]) + '</span>' : '';
@@ -3400,6 +3449,92 @@ window.FileIconMaps = {"seti":{"file":"_default","glyphs":{"_R":["","#519aba"
       return out;
     },
   };
+})();
+;
+/* ==== git/look.js ==== */
+/* The host's look: the fonts (and the file icon theme's key) of the app the page runs in, so the page follows what the
+   owner picked there instead of its own choice (docs/ARCHITECTURE.md §1 "What a host provides"). Optional: a host
+   without it keeps the skins' own fonts (git.css, git-diff.css), exactly as before.
+     Git.host.look() -> look | Promise<look> | null
+       look = { code: { family, size, lineHeight }?, ui: { family }?, icons: string? }
+         code.family      a CSS font-family list: diffs, the file view and blame, the Console, hashes, commit messages
+                          shown in the Log, the merge tool
+         code.size        px: the diff, the file view and blame (not the merge tool, whose rows are a fixed 22 px)
+         code.lineHeight  px; 0 or absent: round(size × 1.5), the editor's automatic line height on macOS
+         ui.family        a CSS font-family list for the rest of the page
+         icons            the key of the host's file icon theme; when it changes the page is drawn again, since the
+                          icons come from Git.host.fileIcon (fileicons.js)
+     Git.host.onLookChange(fn) -> off (optional): the host calls fn(look?) when its look changed; without an argument the
+       base asks look() again.
+   The look is written as inline custom properties on <html>, which win over both skins; a field the host does not give
+   is removed, so the skin's value holds. A change of fonts emits 'look' (the diff and the file view redraw: their row
+   math reads --gd-line when drawing); a change of `icons` also redraws the page (Git.frame.rebuild, as a skin does).
+   Git.look = { current() -> the applied look (normalised) or null, apply(look) } */
+(function () {
+  'use strict';
+  const Git = window.Git;
+  const MONO = 'ui-monospace, Menlo, monospace';
+  const SANS = '-apple-system, BlinkMacSystemFont, system-ui, sans-serif';
+  // a value goes into a declaration: nothing that could end it or open another one
+  const clean = (s) => (typeof s === 'string' ? s.replace(/[;{}<>\\]/g, '').trim().slice(0, 400) : '');
+  const px = (v, min, max) => (typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max ? Math.round(v) : 0);
+  const withFallback = (family, generic, stack) => (!family ? '' : new RegExp('\\b' + generic + '\\b', 'i').test(family) ? family : family + ', ' + stack);
+
+  /** The look as CSS: { '--g-mono': '…', … } (only what the host gave), plus the icon key. */
+  function normalise(look) {
+    const out = { vars: {}, icons: '' };
+    if (!look || typeof look !== 'object') return out;
+    const code = look.code && typeof look.code === 'object' ? look.code : null;
+    if (code) {
+      const family = withFallback(clean(code.family), 'monospace', MONO);
+      if (family) { out.vars['--g-mono'] = family; out.vars['--gd-font'] = family; }
+      const size = px(code.size, 8, 40);
+      if (size) {
+        out.vars['--gd-size'] = size + 'px';
+        out.vars['--gd-line'] = (px(code.lineHeight, size, 120) || Math.round(size * 1.5)) + 'px';
+      }
+    }
+    const ui = look.ui && typeof look.ui === 'object' ? look.ui : null;
+    if (ui) {
+      const family = withFallback(clean(ui.family), 'sans-serif', SANS);
+      if (family) out.vars['--g-font'] = family;
+    }
+    if (typeof look.icons === 'string') out.icons = look.icons.slice(0, 100);
+    return out;
+  }
+  const NAMES = ['--g-font', '--g-mono', '--gd-font', '--gd-size', '--gd-line'];
+  let applied = null, sig = '';
+
+  function apply(look) {
+    const next = normalise(look);
+    const nextSig = JSON.stringify(next);
+    if (nextSig === sig) return false;
+    const before = applied;
+    sig = nextSig;
+    applied = next;
+    const st = document.documentElement.style;
+    NAMES.forEach((n) => { if (next.vars[n]) st.setProperty(n, next.vars[n]); else st.removeProperty(n); });
+    // A look that comes before the page is drawn changes nothing drawn (rebuild waits for an open repository); one that
+    // comes later (an asynchronous host) redraws like a change.
+    if (Git.emit) Git.emit('look', next);
+    if ((before ? before.icons : '') !== next.icons && Git.frame && Git.frame.rebuild) Git.frame.rebuild();
+    return true;
+  }
+  /** The host's look now; a failing or slow host leaves the skin's own fonts. */
+  function ask() {
+    let got;
+    try { got = Git.host && typeof Git.host.look === 'function' ? Git.host.look() : null; } catch (e) { got = null; }
+    if (got && typeof got.then === 'function') got.then((l) => { if (l) apply(l); }, () => { /* no look */ });
+    else if (got) apply(got);
+  }
+  Git.look = {
+    current: () => (applied ? { vars: Object.assign({}, applied.vars), icons: applied.icons } : null),
+    apply,
+  };
+  ask();
+  try {
+    if (Git.host && typeof Git.host.onLookChange === 'function') Git.host.onLookChange((l) => { if (l && typeof l === 'object') apply(l); else ask(); });
+  } catch (e) { /* the host offers no change notice */ }
 })();
 ;
 /* ==== git/diffcore.js ==== */
@@ -7588,9 +7723,13 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     if (Git.popupMenu) Git.popupMenu.close();
     state.tabs.forEach((tab) => { if (typeof tab.off === 'function') tab.off(); if (tab.el) { tab.el.remove(); tab.el = null; } });
     const host = document.getElementById('app');
+    // The editor tabs survive a rebuild, but taking them out of the page resets their scroll offsets while their
+    // virtual lists keep the rows of the old offset (a blank tab): put the offsets back, whose scroll event redraws.
+    const kept = edBody ? Array.from(edBody.querySelectorAll('*')).filter((e) => e.scrollTop || e.scrollLeft).map((e) => [e, e.scrollTop, e.scrollLeft]) : [];
     if (W.mode === 'workbench') { buildWorkbench(host); applyLayout(); }
     else if (W.mode === 'single') buildSingle(host, W.view);
     else if (W.mode === 'picker' && Git.picker) Git.picker.mount(host, W.pickerOpts || {});
+    kept.forEach(([e, top, left]) => { if (e.isConnected) { e.scrollTop = top; e.scrollLeft = left; } });
   };
 
   // ---------------------------------------------------------------- whole-page states
@@ -13242,7 +13381,7 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
       const live = (ev) => { if (c.spec && (c.spec.kind === 'local' || c.spec.kind === 'file')) c.update(ev); };
       subs = [Git.on('change', (ev) => { if (ev && ev.reason === 'log') return; live(null); }), Git.on('files', live),
         Git.on('diff-settings', (name) => { draw(name === 'sync' ? 'scroll' : 'cur'); if (name === 'sync' && settings.sync && mode === 'side' && scr.R) follow('R'); }),
-        Git.on('skin', () => draw('cur')), Git.on('lang', () => { if (src) src.title = titleOf(c.spec); draw('scroll'); }),
+        Git.on('skin', () => draw('cur')), Git.on('look', () => draw('cur')), Git.on('lang', () => { if (src) src.title = titleOf(c.spec); draw('scroll'); }),
         Git.on('included', () => { const box = c.root && c.root.querySelector('.gd-include input'); if (box && Git._commit) box.checked = Git._commit.S.included.has(c.spec.path); })];
       window.addEventListener('resize', resized);
       window.addEventListener('keydown', modKey, true);
@@ -13994,10 +14133,11 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
       Git.clear(el).appendChild(v.root);
       body = null; scroll = null; v.text = null;
       const mine = (ev) => !ev || !ev.paths || ev.paths.indexOf(path) >= 0;
-      v.subs = v.rev ? [Git.on('skin', () => draw(true))] : [
+      v.subs = v.rev ? [Git.on('skin', () => draw(true)), Git.on('look', () => draw(true))] : [
         Git.on('files', (ev) => { if (mine(ev)) load(true); }),
         Git.on('change', (ev) => { if (!ev || ev.reason === 'log') return; load(true); }),
         Git.on('skin', () => draw(true)),
+        Git.on('look', () => draw(true)),
       ];
       load(false);
     };
@@ -15611,7 +15751,7 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
       untracked folder, or one standing where a tracked file was) shows the folder icon and its own name. */
   function fileList(paths, ignored) {
     return h('div.gb-problem-files.g-scroll', { role: 'list' }, paths.map((p) => h('div.gb-problem-file', { role: 'listitem', title: p, class: ignored && ignored.has(p) ? 'ignored' : '' },
-      /\/$/.test(p) ? Git.icon('nodes/folder') : Git.fileIcon(p), h('span.gb-problem-name', Git.fileName(p)), h('span.g-dim', Git.dirName(p)),
+      /\/$/.test(p) ? Git.folderIcon(p) : Git.fileIcon(p), h('span.gb-problem-name', Git.fileName(p)), h('span.g-dim', Git.dirName(p)),
       ignored && ignored.has(p) ? h('span.g-dim.gb-problem-ignored', t('ignored')) : null)));
   }
   /** Which of `untracked` are ignored files: the snapshot lists every untracked path that is not ignored (`?`, a whole

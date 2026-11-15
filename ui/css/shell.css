@@ -49,6 +49,8 @@
 @font-face { font-family: "g-seti"; src: url("../img/file-icons/seti.woff") format("woff"); font-display: block; }
 .ficon { display: flex; flex: none; align-items: center; justify-content: center; width: 16px; height: 16px; overflow: visible; }
 .ficon-seti { position: relative; left: 1.5px; font: 19px/1 "g-seti"; white-space: nowrap; }
+/* a host theme's icon as a picture (Git.host.fileIcon, ui/git/look.js) */
+img.ficon { display: block; object-fit: contain; pointer-events: none; -webkit-user-drag: none; user-select: none; }
 
 /* ---- icon buttons ---------------------------------------------------------------------------------------------- */
 .icon-btn {

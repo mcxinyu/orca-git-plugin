@@ -26,6 +26,10 @@
     const isOpen = (n) => (open.has(n.id) ? open.get(n.id) : n.open !== false);
     const at = (id) => (index.has(id) ? index.get(id) : -1);
     const setSelected = (ids) => { selected = ids; selSet = new Set(ids); };
+    /** A work tree folder (`nodes/folder`; not a branch folder, kind 'folder') in the host's icon theme, open or
+        closed: its HTML, or '' for IntelliJ's icon (ui.js Git.folderIconHTML). */
+    const hostFolder = (n, folder) => (n.icon === 'nodes/folder' && n.kind !== 'folder' && typeof n.label === 'string' && Git.folderIconHTML
+      ? Git.folderIconHTML(n.label, folder && isOpen(n)) : '');
 
     function flatten() {
       rows = [];
@@ -51,7 +55,9 @@
         const now = () => (index.has(n.id) ? rows[index.get(n.id)].node : n);
         row.appendChild(Git.checkbox({ checked: n.checked, onChange: (v) => o.onCheck && o.onCheck(now(), v) }));
       }
-      if (n.icon) row.appendChild(n.icon.nodeType ? n.icon : Git.icon(n.icon));
+      const dirIcon = hostFolder(n, folder);
+      if (dirIcon) row.appendChild(h('span.g-file-ic', { html: dirIcon, 'aria-hidden': 'true' }));
+      else if (n.icon) row.appendChild(n.icon.nodeType ? n.icon : Git.icon(n.icon));
       row.appendChild(h('span.g-row-label', { class: (n.bold ? 'bold ' : '') + (n.italic ? 'italic ' : '') + (n.strike ? 'strike' : ''), style: n.color ? { color: n.color } : null }, n.label));
       if (n.dim) row.appendChild(h('span.g-row-dim', n.dim));
       if (n.right) row.appendChild(h('span.g-row-right', n.right));
@@ -68,7 +74,7 @@
     const part = (x) => (x == null ? '' : x.nodeType ? x.outerHTML : String(x));
     function signature() {
       return rows.map((r) => { const n = r.node; return [n.id, r.depth, n.children && n.children.length ? (isOpen(n) ? 'o' : 'c') : '', String(n.checked),
-        part(n.icon), part(n.label), n.bold ? 1 : 0, n.italic ? 1 : 0, n.strike ? 1 : 0, n.color || '', part(n.dim), part(n.right), n.tooltip || '', n.kind || '',
+        hostFolder(n, !!(n.children && n.children.length)) || part(n.icon), part(n.label), n.bold ? 1 : 0, n.italic ? 1 : 0, n.strike ? 1 : 0, n.color || '', part(n.dim), part(n.right), n.tooltip || '', n.kind || '',
         selSet.has(n.id) ? 1 : 0].join('\u0001'); }).join('\u0002') + '\u0003' + (empty ? empty.textContent : '');
     }
     let drawn = null;

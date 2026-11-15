@@ -11,7 +11,7 @@
      `connection` { state: 'open'|'lost'|'reconnected', client }: after `reconnected` (the worker was restarted)
      the old subscriptions are gone; the store subscribes again and resyncs. Reads in flight are asked again.
    Git.host = Orca's hooks: openFile → Orca's editor (editor.open through the worker, when the repository is the
-     focused workspace), openExternal → orca.shell.openExternal, copy, prefs (localStorage, else memory),
+     focused workspace), look / onLookChange → the editor's font (editor.readTypography), openExternal → orca.shell.openExternal, copy, prefs (localStorage, else memory),
      hooks.showInLog → the Git Log panel.
    Git.orca = { start(view) -> Promise<hello>, request(name, input, o), onMessage(type, fn), workspace, stats() }
      (hosts/orca/panel.js). The product name the user sees (Git.host.product) and the storage prefix (Git.host.storagePrefix) are set by panel.js. */
@@ -307,6 +307,24 @@
     try { document.execCommand('copy'); } catch (e) { /* refused */ }
     ta.remove();
   }
+  // The code font of Orca's file editor (ui/git/look.js): `editor.readTypography` (no capability; panels and the custom
+  // editor; host API 1.6) and its `editor.typography.changed` event. lineHeight is pixels, 0 when automatic. Orca
+  // hands frames no interface font (its frame tokens are colours and the radius) and no file icon theme, so those stay
+  // the base's own. An Orca without the method (feature-detected with host.has, or a refused call) keeps the skin's.
+  const lookOf = (ty) => (ty && typeof ty === 'object'
+    ? { code: { family: ty.cssFontFamily || ty.fontFamily || '', size: ty.fontSize, lineHeight: ty.lineHeight } } : null);
+  function look() {
+    const host = window.orca && window.orca.host;
+    if (!host || typeof host.call !== 'function') return null;
+    try { if (typeof host.has === 'function' && !host.has('editor.readTypography')) return null; } catch (e) { return null; }
+    let answer;
+    try { answer = host.call('editor.readTypography', {}); } catch (e) { return null; }
+    return Promise.resolve(answer).then(lookOf, () => null);
+  }
+  function onLookChange(fn) {
+    try { if (window.orca && window.orca.on) window.orca.on('editor.typography.changed', (ty) => { const l = lookOf(ty); if (l) fn(l); }); } catch (e) { /* no editor events */ }
+    return () => {};
+  }
   const within = (a, b) => a === b || a.indexOf(b.replace(/\/$/, '') + '/') === 0;
   /** Orca's editor when the open repository is the focused workspace's; otherwise the caller shows the file itself. */
   function openFile(path, o) {
@@ -319,6 +337,8 @@
   Git.host = Object.assign({
     name: 'orca',
     openFile,
+    look,
+    onLookChange,
     openExternal(url) {
       try { if (window.orca && window.orca.shell) window.orca.shell.openExternal(String(url)).catch(() => {}); } catch (e) { /* refused */ }
     },

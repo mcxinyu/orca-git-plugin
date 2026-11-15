@@ -41,7 +41,7 @@
       untracked folder, or one standing where a tracked file was) shows the folder icon and its own name. */
   function fileList(paths, ignored) {
     return h('div.gb-problem-files.g-scroll', { role: 'list' }, paths.map((p) => h('div.gb-problem-file', { role: 'listitem', title: p, class: ignored && ignored.has(p) ? 'ignored' : '' },
-      /\/$/.test(p) ? Git.icon('nodes/folder') : Git.fileIcon(p), h('span.gb-problem-name', Git.fileName(p)), h('span.g-dim', Git.dirName(p)),
+      /\/$/.test(p) ? Git.folderIcon(p) : Git.fileIcon(p), h('span.gb-problem-name', Git.fileName(p)), h('span.g-dim', Git.dirName(p)),
       ignored && ignored.has(p) ? h('span.g-dim.gb-problem-ignored', t('ignored')) : null)));
   }
   /** Which of `untracked` are ignored files: the snapshot lists every untracked path that is not ignored (`?`, a whole

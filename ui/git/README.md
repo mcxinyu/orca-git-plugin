@@ -34,7 +34,7 @@ works in `ui/`. Design: `docs/ARCHITECTURE.md` §6, wire reference: `docs/PROTOC
 | `lang.js` | the label languages: `Git.t`, `Git.addTR`, `Git.addLang`, `Git.languages`, `Git.setLang`, `Git.languageMenu` ("Adding a language" in §8) |
 | `store.js` | events, `Git.repo`, loading and resync, the synchronous queries (§3) |
 | `content.js` | `Git.content`: async reads with cache and stale-answer protection (§4) |
-| `ui.js`, `ui-tree.js`, `vlist.js`, `menu.js`, `fileicons.js` | shared components (§7; `Git.tree` lives in `ui-tree.js`), virtual list, the pop-up menu (`Git.popupMenu`), the Seti file icons |
+| `ui.js`, `ui-tree.js`, `vlist.js`, `menu.js`, `fileicons.js`, `look.js` | shared components (§7; `Git.tree` lives in `ui-tree.js`), virtual list, the pop-up menu (`Git.popupMenu`), the file icons (the host's theme, else Seti), the host's fonts (§6) |
 | `diffcore.js`, `graph-ref.js`, `graph.js`, `graphpaint.js`, `icons.js` | diff, commit graph, IntelliJ icons |
 | `actions.js` + `actions-changes.js`, `actions-history.js`, `actions-branches.js` | the command core (§5) and the commands per area |
 | `workbench.js`, `picker.js`, `workbench.css` | page layout, tabs, single-view mode, repository picker (§6) |
@@ -257,6 +257,13 @@ loading, engine unreachable (Retry), not a repository (picker with the error), e
   for Range.
 - `Git.product()`: the product name in messages (`Git.host.product`, default "Git Panel", `ui/host/product.js`).
 - The loading page ("Loading X…") shows its text only after 400 ms (`.wb-loading`): a quick panel boot does not flash it.
+- The host's look (`look.js`): `Git.host.look()` → `{ code: { family, size, lineHeight }, ui: { family }, icons }` (or a
+  promise of it, or null), `Git.host.onLookChange(fn)`; written as inline `--gd-font`, `--g-mono`, `--gd-size`,
+  `--gd-line`, `--g-font` on `<html>`, over both skins. A view that computes with a font metric reads the variable
+  when it draws and redraws on `Git.on('look')` (the diff, the file view); a change of `icons` redraws the page. File
+  icons: `Git.fileIcons.html(name, { dir, expanded })` asks `Git.host.fileIcon` first (HTML or null), else Seti for a
+  file and '' for a folder (IntelliJ's `nodes/folder`). `Git.tree` asks for the folder icon of a `nodes/folder` row
+  (not kind `folder`: branch folders) with its open state; `Git.folderIcon(name, expanded)` outside a tree.
 - `Git.host` (host script, before the UI): `openFile(path, { line })` → handled?, `openExternal(url)`, `copy(text)`,
   `prefs.get(key, fallback)` / `prefs.set(key, value)`, `hooks`. `Git.backend`: `call(method, params)` → Promise
   (rejects with `{ code, message, data }`), `on(event, fn)`, plus `reconnect()` and `client()` in the standalone host.

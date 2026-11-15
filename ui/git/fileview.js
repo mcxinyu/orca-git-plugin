@@ -185,10 +185,11 @@
       Git.clear(el).appendChild(v.root);
       body = null; scroll = null; v.text = null;
       const mine = (ev) => !ev || !ev.paths || ev.paths.indexOf(path) >= 0;
-      v.subs = v.rev ? [Git.on('skin', () => draw(true))] : [
+      v.subs = v.rev ? [Git.on('skin', () => draw(true)), Git.on('look', () => draw(true))] : [
         Git.on('files', (ev) => { if (mine(ev)) load(true); }),
         Git.on('change', (ev) => { if (!ev || ev.reason === 'log') return; load(true); }),
         Git.on('skin', () => draw(true)),
+        Git.on('look', () => draw(true)),
       ];
       load(false);
     };

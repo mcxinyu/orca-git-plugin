@@ -32,6 +32,10 @@ Needs Orca 1.4.248 or newer and `git` on the `PATH`. Developed and tested on mac
 - **Annotate** (blame) in the file view, and an inline blame at the end of the caret line.
 - **Console**: every `git` command the plugin runs, as it ran.
 - English by default; Turkish can be chosen in each panel's View Options.
+- **Your editor font**: diffs, the file view with blame and the Console use the font family, size and line height of
+  Orca's file editor (Settings, editor zoom included) and follow it when it changes (Orca 1.4.256 or newer; older
+  versions keep the plugin's own font). The rest of the panel uses the system font and the file icons are the plugin's
+  own Seti icons: Orca does not share its interface font or its file icon theme with plugins.
 
 ## Safety net
 

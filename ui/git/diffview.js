@@ -441,7 +441,7 @@
       const live = (ev) => { if (c.spec && (c.spec.kind === 'local' || c.spec.kind === 'file')) c.update(ev); };
       subs = [Git.on('change', (ev) => { if (ev && ev.reason === 'log') return; live(null); }), Git.on('files', live),
         Git.on('diff-settings', (name) => { draw(name === 'sync' ? 'scroll' : 'cur'); if (name === 'sync' && settings.sync && mode === 'side' && scr.R) follow('R'); }),
-        Git.on('skin', () => draw('cur')), Git.on('lang', () => { if (src) src.title = titleOf(c.spec); draw('scroll'); }),
+        Git.on('skin', () => draw('cur')), Git.on('look', () => draw('cur')), Git.on('lang', () => { if (src) src.title = titleOf(c.spec); draw('scroll'); }),
         Git.on('included', () => { const box = c.root && c.root.querySelector('.gd-include input'); if (box && Git._commit) box.checked = Git._commit.S.included.has(c.spec.path); })];
       window.addEventListener('resize', resized);
       window.addEventListener('keydown', modKey, true);
