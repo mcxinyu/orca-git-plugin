@@ -22,6 +22,7 @@ import extraLogOps from './ops/extra-log.js';
 import extraLogRead from './read/extra-log.js';
 import extraChangesRead from './read/extra-changes.js';
 import diag from './read/diag.js';
+import locate from './read/locate.js';
 
 // Mutating operations (core/ops/*.js) are imported above and appended here.
 export const METHODS = [
@@ -46,4 +47,5 @@ export const METHODS = [
   ...extraBranchesOps,
   ...extraChangesRead,
   ...diag,
+  ...locate,
 ];

@@ -30,12 +30,16 @@ Needs Orca 1.4.248 or newer and `git` on the `PATH`. Developed and tested on mac
 - **Conflicts**: the conflicts dialog and a three-pane merge tool. An unfinished merge, rebase or cherry-pick is always
   shown and can always be aborted.
 - **Annotate** (blame) in the file view, and an inline blame at the end of the caret line.
+- **Blame beside Source**: a file's own tab gets a "Blame" view in its view toggle (the pen icon beside Source, for
+  the common source file types). It shows the file read-only; click a line to see who last changed it.
 - **Console**: every `git` command the plugin runs, as it ran.
 - English by default; Turkish can be chosen in each panel's View Options.
 - **Your editor font**: diffs, the file view with blame and the Console use the font family, size and line height of
   Orca's file editor (Settings, editor zoom included) and follow it when it changes (Orca 1.4.256 or newer; older
-  versions keep the plugin's own font). The rest of the panel uses the system font and the file icons are the plugin's
-  own Seti icons: Orca does not share its interface font or its file icon theme with plugins.
+  versions keep the plugin's own font).
+- **Orca's look**: the panels are set in Geist, Orca's default interface font, and file icons are the ones Orca's own
+  file explorer draws. Orca does not tell plugins about a changed interface font or an installed icon theme, so the
+  panels always show Orca's defaults.
 
 ## Safety net
 
@@ -72,7 +76,9 @@ Nothing is written into a working tree.
 
 - A workspace on another machine (SSH, WSL) is not supported; the panel shows the repository picker instead.
 - In a linked worktree, diffs open inside the panel instead of a center tab.
-- The inline blame works in the plugin's own file view; an Orca plugin cannot decorate Orca's editor.
+- An Orca plugin cannot decorate Orca's Source editor, so the inline blame lives in the plugin's own file view and in
+  the "Blame" view of a file's tab. Orca gives that view the file's text, not its path: a file with unsaved changes is
+  not found until it is saved.
 - Not included: changelists, shelve and stash UI, patches, pull requests, a worktree UI, commit checks, GPG, a submodule
   UI, committing single lines of a file.
 
@@ -84,7 +90,7 @@ It holds the plugin exactly as Orca loads it, published from a development tree 
 |---|---|
 | `orca-plugin.json` | the plugin's manifest |
 | `core/` | the engine: Node.js, runs the real `git`, no npm dependencies |
-| `ui/` | the web UI, plain scripts without a build step; `ui/orca-bundle.js` and `ui/css/orca-bundle.css` are the same files joined, generated |
+| `ui/` | the web UI. `ui/orca-bundle.js` and `ui/css/orca-bundle.css` are its plain scripts and stylesheets joined in order, not minified or changed: each part stands under a `/* ==== <file> ==== */` line (the one minified part is highlight.js, as its authors distribute it). `ui/git/boot.js` starts the UI |
 | `hosts/orca/` | the worker and the panels that connect the two to Orca |
 
 License: MIT ([LICENSE](LICENSE)). Third-party files keep their own licenses: [NOTICE.md](NOTICE.md).

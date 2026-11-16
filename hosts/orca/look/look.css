@@ -1,0 +1,14 @@
+/* The Orca host's look (hosts/orca/README.md "Fonts and icons from Orca"), loaded by hosts/orca/panel.js.
+   Geist: the font Orca bundles for its interface, the same file and declaration as Orca's src/renderer/src/assets/main.css
+   (Geist-Variable.woff2, SIL OFL 1.1: GEIST-OFL.txt). The family is applied by ui/host/orca.js through Git.host.look()
+   (`--g-font`); a frame has no network, so the file ships with the plugin. */
+@font-face {
+  font-family: 'Geist';
+  src: url('Geist-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+/* The file icons (file-icons.js): Orca's explorer draws them `size-3 text-muted-foreground`, 12 px in Orca's muted text
+   colour. Here the muted text colour of the page's own skin, which the panel keeps (its rows' paths and counts). */
+.orca-ficon { display: block; flex: none; width: 12px; height: 12px; color: var(--g-dim); }

@@ -12,7 +12,7 @@
      `connection` { state: 'open'|'lost'|'reconnected', client }: after `reconnected` (the worker was restarted)
      the old subscriptions are gone; the store subscribes again and resyncs. Reads in flight are asked again.
    Git.host = Orca's hooks: openFile → Orca's editor (editor.open through the worker, when the repository is the
-     focused workspace), look / onLookChange → the editor's font (editor.readTypography), openExternal → orca.shell.openExternal, copy, prefs (localStorage, else memory),
+     focused workspace), look / onLookChange → the editor's font (editor.readTypography) as the code font, Orca's default interface font (Geist), fileIcon → hosts/orca/look/file-icons.js (set before this file), openExternal → orca.shell.openExternal, copy, prefs (localStorage, else memory),
      hooks.showInLog → the Git Log panel.
    Git.orca = { start(view) -> Promise<hello>, request(name, input, o), onMessage(type, fn), workspace, stats() }
      (hosts/orca/panel.js). The product name the user sees (Git.host.product) and the storage prefix (Git.host.storagePrefix) are set by panel.js. */
@@ -310,20 +310,26 @@
   }
   // The code font of Orca's file editor (ui/git/look.js): `editor.readTypography` (no capability; panels and the custom
   // editor; host API 1.6) and its `editor.typography.changed` event. lineHeight is pixels, 0 when automatic. Orca
-  // hands frames no interface font (its frame tokens are colours and the radius) and no file icon theme, so those stay
-  // the base's own. An Orca without the method (feature-detected with host.has, or a refused call) keeps the skin's.
-  const lookOf = (ty) => (ty && typeof ty === 'object'
-    ? { code: { family: ty.cssFontFamily || ty.fontFamily || '', size: ty.fontSize, lineHeight: ty.lineHeight } } : null);
+  // hands frames no interface font (its frame tokens are colours and the radius) and no file icon theme. So the
+  // interface font is Orca's default one, its stack as Orca builds it (buildAppFontFamily, DEFAULT_APP_FONT_FAMILY
+  // 'Geist'; the font file ships in hosts/orca/look/), and the file icons are its explorer's default ones
+  // (hosts/orca/look/file-icons.js); a font or icon theme the user picked in Orca stays out of reach. An Orca without
+  // the editor method (feature-detected with host.has, or a refused call) keeps the skin's code font.
+  const UI_FONT = '"Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  // (no `icons` key: the icons never change while a page lives, and a new key would redraw the page once for nothing)
+  const own = () => ({ ui: { family: UI_FONT } });
+  const lookOf = (ty) => Object.assign(own(), ty && typeof ty === 'object'
+    ? { code: { family: ty.cssFontFamily || ty.fontFamily || '', size: ty.fontSize, lineHeight: ty.lineHeight } } : {});
   function look() {
     const host = window.orca && window.orca.host;
-    if (!host || typeof host.call !== 'function') return null;
-    try { if (typeof host.has === 'function' && !host.has('editor.readTypography')) return null; } catch (e) { return null; }
+    if (!host || typeof host.call !== 'function') return own();
+    try { if (typeof host.has === 'function' && !host.has('editor.readTypography')) return own(); } catch (e) { return own(); }
     let answer;
-    try { answer = host.call('editor.readTypography', {}); } catch (e) { return null; }
-    return Promise.resolve(answer).then(lookOf, () => null);
+    try { answer = host.call('editor.readTypography', {}); } catch (e) { return own(); }
+    return Promise.resolve(answer).then(lookOf, () => own());
   }
   function onLookChange(fn) {
-    try { if (window.orca && window.orca.on) window.orca.on('editor.typography.changed', (ty) => { const l = lookOf(ty); if (l) fn(l); }); } catch (e) { /* no editor events */ }
+    try { if (window.orca && window.orca.on) window.orca.on('editor.typography.changed', (ty) => { if (ty && typeof ty === 'object') fn(lookOf(ty)); }); } catch (e) { /* no editor events */ }
     return () => {};
   }
   const within = (a, b) => a === b || a.indexOf(b.replace(/\/$/, '') + '/') === 0;
@@ -13954,7 +13960,7 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
                                      'file:<path>@<rev>' for a committed version (no markers; its blame is of that revision)
                                      line: 1-based, shown in the middle and marked as the caret row
      Git.fileView.tab(key) -> the view { key, path, rev, lines, marks, blame, line, root, list } (key: path or path@rev) · .all()
-     A click in the text or ↓ / ↑ (once there is one) moves the caret row (`line`); its inline blame: annotate-inline.js.
+     A click anywhere on a line or ↓ / ↑ (once there is one) moves the caret row (`line`); its inline blame: annotate-inline.js.
      Git.fileView.refresh(key)   redraw (annotate.js after a blame arrives) */
 (function () {
   'use strict';
@@ -14031,9 +14037,10 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
           if (mark && Git.fileMarker && !e.button) { const k = Git.fileMarker.blockAt(v, +mark.closest('.fv-row').dataset.line - 1); if (k >= 0) { Git.fileMarker.open(v, k); return; } }
           const inline = e.target.closest && e.target.closest('.fv-inline');
           if (inline && !e.button) { if (Git.actions.showInLog) Git.actions.showInLog(inline.dataset.id); return; }
-          // a click in the text puts the caret on that line (an editor's caret row; the inline blame follows it)
-          const code = e.target.closest && e.target.closest('.fv-code');
-          if (code && !e.button) { setCaret(+code.closest('.fv-row').dataset.line - 1); return; }
+          // a click anywhere on a line (its text, the space after it, its number) puts the caret on that line, as in an
+          // editor (the inline blame follows the caret row); the annotation column keeps its own click
+          const row = e.target.closest && e.target.closest('.fv-row');
+          if (row && !e.button && !e.target.closest('.fv-blame')) { setCaret(+row.dataset.line - 1); return; }
           if (Git.annotate) Git.annotate.click(v, e);
         });
         scroll.addEventListener('keydown', (e) => {

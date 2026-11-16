@@ -3,7 +3,7 @@
   "execution": "trusted-worker",
   "id": "git-panel",
   "name": "Git Panel",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "An IntelliJ IDEA-style Git tool window for the focused workspace: local changes and commit, the Log with its graph and branches, diffs and histories in the editor area.",
   "author": { "name": "Git Panel" },
   "license": "MIT",
@@ -22,7 +22,16 @@
       { "id": "log", "title": "Git", "icon": "branch", "entry": "hosts/orca/panels/log.html", "ui": "html" }
     ],
     "customEditors": [
-      { "id": "view", "title": "Git Panel", "extensions": [".gitpanel"], "entry": "hosts/orca/panels/editor.html", "priority": "default", "icon": "hosts/orca/icons/git.png" }
+      { "id": "view", "title": "Git Panel", "extensions": [".gitpanel"], "entry": "hosts/orca/panels/editor.html", "priority": "default", "icon": "hosts/orca/icons/git.png" },
+      { "id": "blame", "title": "Blame", "entry": "hosts/orca/panels/blame.html", "priority": "option", "icon": "hosts/orca/icons/git.png",
+        "extensions": [".go", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json", ".md", ".yaml", ".yml", ".toml", ".xml", ".html", ".css", ".scss", ".vue", ".svelte", ".py", ".rb", ".php", ".java", ".kt", ".swift", ".c", ".h", ".cpp", ".hpp", ".cs", ".rs", ".sh", ".sql"],
+        "filenames": ["Dockerfile", "Makefile", "Gemfile", "Rakefile", "Podfile", "Procfile", "Brewfile", "Vagrantfile", "Jenkinsfile", "LICENSE", "README", "CHANGELOG", "NOTICE", "AUTHORS", "CODEOWNERS", ".gitignore", ".gitattributes", ".gitmodules", ".editorconfig", ".env", ".npmrc", ".nvmrc", ".prettierrc", ".eslintrc", ".babelrc", ".dockerignore", ".zshrc", ".bashrc"] },
+      { "id": "blame2", "title": "Blame", "entry": "hosts/orca/panels/blame.html", "priority": "option", "icon": "hosts/orca/icons/git.png",
+        "extensions": [".dart", ".lua", ".gradle", ".properties", ".ini", ".conf", ".cfg", ".txt", ".csv", ".tsv", ".graphql", ".gql", ".proto", ".tf", ".hcl", ".ex", ".exs", ".erl", ".hs", ".ml", ".scala", ".clj", ".r", ".jl", ".pl", ".pm", ".m", ".mm", ".zsh", ".bash", ".fish", ".ps1"] },
+      { "id": "blame3", "title": "Blame", "entry": "hosts/orca/panels/blame.html", "priority": "option", "icon": "hosts/orca/icons/git.png",
+        "extensions": [".kts", ".groovy", ".less", ".sass", ".styl", ".htm", ".xhtml", ".jsonc", ".json5", ".lock", ".mdx", ".rst", ".tex", ".astro", ".hbs", ".ejs", ".pug", ".twig", ".erb", ".j2", ".tpl", ".plist", ".pbxproj", ".xcconfig", ".entitlements", ".storyboard", ".xib", ".strings", ".cmake", ".mk", ".bat", ".cmd"] },
+      { "id": "blame4", "title": "Blame", "entry": "hosts/orca/panels/blame.html", "priority": "option", "icon": "hosts/orca/icons/git.png",
+        "extensions": [".cc", ".cxx", ".hh", ".hxx", ".fs", ".fsx", ".vb", ".nim", ".zig", ".sol", ".elm", ".cr", ".d", ".s", ".asm", ".svg", ".diff", ".patch", ".log", ".mod", ".sum", ".env", ".iml", ".gemspec", ".podspec", ".cjsx", ".mts", ".cts", ".prisma", ".nix", ".bzl", ".cabal"] }
     ],
     "newFiles": [
       { "id": "git", "title": "Git", "extension": ".gitpanel", "icon": "hosts/orca/icons/git.png" }

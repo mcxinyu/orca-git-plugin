@@ -18,7 +18,10 @@
   // `editor`: the custom editor frame (panels/editor.html); its document says which view it is (see start())
   let view = (me && me.dataset.view) || '';
   const editor = view === 'editor';
-  if (editor) view = '';
+  // `blame`: the Blame view of a file's own tab (panels/blame.html, hosts/orca/blame.js); a frame like the editor's
+  const blame = view === 'blame';
+  const framed = editor || blame;
+  if (framed) view = '';
   const ui = (me && me.dataset.ui) || '../../../ui/';
   // This folder, named from the UI folder. Not from `me.src`: in the running Orca (1.4.255) a frame's script `src`
   // reads as a path from the plugin root ("hosts/orca/panel.js"), which does not resolve from the page.
@@ -34,7 +37,10 @@
   // stylesheet and one script (`files.bundle`); without a bundle the files are asked for one after another. A load that
   // fails is tried again before it counts.
   const bundle = files.bundle || null;
-  (bundle ? [bundle.css] : files.css).forEach((href) => {
+  // The host's own look (hosts/orca/look/): Orca's interface font (Geist) and its explorer's file icons, which Orca
+  // gives plugins no API for. The icons' script comes before the UI so Git.host.fileIcon is the host's.
+  const LOOK = { css: here + 'look/look.css', scripts: [here + 'look/file-icons-data.js', here + 'look/file-icons.js'] };
+  (bundle ? [bundle.css] : files.css).concat(LOOK.css).forEach((href) => {
     const l = document.createElement('link');
     l.rel = 'stylesheet';
     l.href = ui + href;
@@ -50,7 +56,7 @@
   });
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const load = (src) => once(src).catch(() => wait(150).then(() => once(src))).catch(() => wait(600).then(() => once(src)));
-  const scripts = bundle ? [bundle.js] : ['host/orca.js'].concat(files.scripts.filter((s) => s !== 'git/boot.js'));
+  const scripts = LOOK.scripts.concat(bundle ? [bundle.js] : ['host/orca.js'].concat(files.scripts.filter((s) => s !== 'git/boot.js')));
   // A script that still does not load: say what Orca answers for it (a changed file, a limit), so the message is
   // useful without DevTools.
   const why = (src) => fetch(ui + src).then((r) => r.text().then((t) => ' [' + r.status + ' ' + r.statusText + '] ' + t.slice(0, 200)), (e) => ' [' + (e && e.message) + ']');
@@ -97,6 +103,11 @@
     const Git = window.Git;
     Git.host.product = PRODUCT;
     if (editor) view = (await documentKind()) === 'diff' ? 'tab' : '';
+    if (blame) {
+      view = 'tab';
+      // Orca expects a custom editor to ask for its document soon after it loads: ask now, blame.js reads the answer.
+      Git.orca.blameDocument = Promise.resolve().then(() => window.orca.document.get()).catch(() => null);
+    }
     Git.addTR({
       'No workspace is focused in Orca.': 'Orca\'da odaklanmış bir çalışma alanı yok.',
       'The workspace {0} is on another host ({1}). {2} opens local repositories only.': '{0} çalışma alanı başka bir makinede ({1}). {2} yalnız yerel depoları açar.',
@@ -213,8 +224,8 @@
     };
     // Everything a side panel opens (ui/git/openers.js: a diff, a file, File History, a comparison…) goes to Orca's center
     // area when the worker can put it there (hosts/orca/tab.mjs); "not taken" (a linked worktree, editor.open refused…)
-    // runs it here as before. The editor frame (the center tab, or "+ ▸ Git") never forwards.
-    if (!editor) {
+    // runs it here as before. The editor frames (the center tab, "+ ▸ Git", a file's Blame view) never forward.
+    if (!framed) {
       Git.host.forward = function (name, args) {
         const w = Git.orca.workspace, root = Git.repo && Git.repo.root;
         if (!w || w.status !== 'local' || !w.workspaceId || !root) return false;
@@ -225,12 +236,13 @@
     // Centre presence (ui/git/centre.js): Orca tells nothing when the center tab closes or hides, so the tab's frame
     // reports itself to the worker while it renders and the panels ask the worker (hosts/orca/tab.mjs). The panels and
     // the editor frame may not share a storage, so the base's localStorage default is not used here.
-    if (!editor) {
+    if (!framed) {
       Git.host.centreShown = (root) => Git.orca.request('centre.state', { root }, { retries: 2, timeoutMs: 3000 }).then((r) => !!(r && r.shown), () => false);
-    } else if (view === 'tab') {
+    } else if (editor && view === 'tab') {
       Git.host.centreReport = (s) => Git.orca.request('centre.beat', s, { retries: 0, timeoutMs: 3000 });
     }
-    if (view === 'tab') await load(here + 'editor.js');     // the center tab's view (hosts/orca/editor.js)
+    // the view of the frame: the center tab's (hosts/orca/editor.js) or a file's Blame (hosts/orca/blame.js)
+    if (view === 'tab') await load(here + (blame ? 'blame.js' : 'editor.js'));
     await load('git/boot.js');
     if (ws.status === 'local') tell(ws);
 
