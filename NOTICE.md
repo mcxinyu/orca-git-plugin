@@ -6,14 +6,14 @@ Git Panel for Orca includes the following material from other projects. Each kee
 |---|---|---|---|
 | Icons, and constants, label texts and the commit graph logic re-implemented from the source | `ui/orca-bundle.js` (the part `git/icons.js` and parts of the other `git/` parts), `hosts/orca/icons/` | [IntelliJ IDEA Community Edition](https://github.com/JetBrains/intellij-community), Copyright 2000-2026 JetBrains s.r.o. and contributors | Apache License 2.0: `ui/git/NOTICE.txt`, `ui/git/LICENSE-APACHE-2.0.txt` |
 | highlight.js 11.9.0 | `ui/orca-bundle.js` (the part `vendor/highlight-11.9.0.min.js`, as its authors distribute it) | [highlight.js](https://github.com/highlightjs/highlight.js) | BSD 3-Clause: `ui/vendor/highlight-LICENSE.txt` |
-| Seti file icon font and its file name maps (the base's icons; not drawn under Orca) | `ui/img/file-icons/seti.woff`, `ui/orca-bundle.js` (the part `vendor/file-icons.js`) | the Seti theme shipped with [VS Code](https://github.com/microsoft/vscode) | MIT: `ui/img/file-icons/SETI-LICENSE.txt` |
 | Orca's file icon tables (file name / extension → icon) and the rule order of its file and folder icons, re-implemented | `hosts/orca/look/file-icons-data.js`, `hosts/orca/look/file-icons.js` | [Orca](https://github.com/stablyai/orca) v1.4.259, Copyright (c) 2026 Lovecast Inc. | MIT: `hosts/orca/look/ORCA-LICENSE.txt` |
 | Lucide icons (the shapes of the icons those tables name), lucide-static 0.577.0 | `hosts/orca/look/file-icons-data.js` | [Lucide](https://github.com/lucide-icons/lucide), Lucide Contributors; portions from Feather, Cole Bemis | ISC (portions MIT): `hosts/orca/look/LUCIDE-LICENSE.txt` |
 | Geist variable font, as Orca bundles it | `hosts/orca/look/Geist-Variable.woff2` | [Geist](https://github.com/vercel/geist-font), The Geist Project Authors | SIL Open Font License 1.1: `hosts/orca/look/GEIST-OFL.txt` |
 
 Details for each: `ui/vendor/NOTICE.txt`, `ui/git/NOTICE.txt` and `hosts/orca/look/NOTICE.txt`. Those texts name the
 files as they are in the source tree (`ui/git/…`, `ui/vendor/…`); here they are parts of `ui/orca-bundle.js`, each
-under a `/* ==== <file> ==== */` line.
+under a `/* ==== <file> ==== */` line. `ui/vendor/NOTICE.txt` also describes the Seti icon theme of the source tree;
+this plugin does not carry it (under Orca the file icons are Orca's own).
 
 "IntelliJ IDEA" and "JetBrains" are trademarks of JetBrains s.r.o. This plugin is not affiliated with or endorsed by
 JetBrains. Nor is it affiliated with or endorsed by the authors of Orca.

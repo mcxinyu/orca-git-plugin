@@ -3,7 +3,7 @@
   "execution": "trusted-worker",
   "id": "git-panel",
   "name": "Git Panel",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "An IntelliJ IDEA-style Git tool window for the focused workspace: local changes and commit, the Log with its graph and branches, diffs and histories in the editor area.",
   "author": { "name": "Git Panel" },
   "license": "MIT",

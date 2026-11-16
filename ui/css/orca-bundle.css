@@ -167,7 +167,6 @@
 .cmenu.native .cm-sep { margin: 5px 9px; background: rgba(var(--white-rgb), .12); }
 
 /* ---- File icons (FileIconView: 16x16 box; Seti glyph in its color) ------------------------------------------ */
-@font-face { font-family: "g-seti"; src: url("../img/file-icons/seti.woff") format("woff"); font-display: block; }
 .ficon { display: flex; flex: none; align-items: center; justify-content: center; width: 16px; height: 16px; overflow: visible; }
 .ficon-seti { position: relative; left: 1.5px; font: 19px/1 "g-seti"; white-space: nowrap; }
 /* a host theme's icon as a picture (Git.host.fileIcon, ui/git/look.js) */
