@@ -4230,7 +4230,12 @@ function createPrintElementGenerator(graph, layoutOf, colorOf, opts) {
       sum += width * weight; sumSq += width * width * weight;
       edgesCount = newEdges;
     }
-    return Math.round(sum + Math.sqrt(sumSq - sum * sum));
+    // When every row is equally wide (a history without branches: one lane all the way) the variance is zero, and in
+    // floating point it can come out a hair below zero: its root is NaN then. Java's (int) Math.round(NaN) is 0, in
+    // JavaScript the NaN went on into every row's width and the subjects were pushed out of the table (0.1.7 and
+    // before, any repository with a purely linear history). A variance is never negative: it is cut at zero.
+    const width = Math.round(sum + Math.sqrt(Math.max(0, sumSq - sum * sum)));
+    return Number.isFinite(width) ? width : 0;
   }
 
   return { getPrintElements, sortedVisible, recommendedWidth, edgesInRow };
@@ -4381,7 +4386,7 @@ module.exports = {
     const gen = Ref.createPrintElementGenerator(graph, (i) => layout.getLayoutIndex(i), colorOf,
       o.longEdges ? { longEdgeSize: 1000, visiblePartSize: 250, edgeWithArrowSize: 30 } : { longEdgeSize: 30, visiblePartSize: 1, edgeWithArrowSize: Infinity });
     const recommended = gen.recommendedWidth();
-    const minCols = Math.min(6, recommended);
+    const minCols = Number.isFinite(recommended) ? Math.min(6, recommended) : 0;   // never a NaN into a row's width
 
     function build(row, ends) {
       const out = { id: order[row], pos: 0, color: '', colorId: 0, lines: [], stubs: [], cols: 1, merge: merge[row] === 1, head: head[row] === 1 };
