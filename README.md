@@ -29,9 +29,7 @@ Needs Orca 1.4.248 or newer and `git` on the `PATH`. Developed and tested on mac
   tab in Orca's center area. "+ ▸ Git" opens the whole tool window as a tab.
 - **Conflicts**: the conflicts dialog and a three-pane merge tool. An unfinished merge, rebase or cherry-pick is always
   shown and can always be aborted.
-- **Annotate** (blame) in the file view, and an inline blame at the end of the caret line.
-- **Blame beside Source**: a file's own tab gets a "Blame" view in its view toggle (the pen icon beside Source, for
-  the common source file types). It shows the file read-only; click a line to see who last changed it.
+- **Annotate** (blame) in the file view, and an inline blame at the end of the line you click.
 - **Console**: every `git` command the plugin runs, as it ran.
 - **Worktrees**: when the repository has more than one worktree (say, one per agent session), a chip in the panel's
   header lists them with their branch and how many changes each has. Pick one to see its changes, diffs and Log in the
@@ -81,9 +79,8 @@ Nothing is written into a working tree.
 - In a linked worktree, or while the panel shows another worktree than the workspace's, diffs open inside the panel
   instead of a center tab.
 - Worktrees can be listed and shown, not created, removed, locked or pruned.
-- An Orca plugin cannot decorate Orca's Source editor, so the inline blame lives in the plugin's own file view and in
-  the "Blame" view of a file's tab. Orca gives that view the file's text, not its path: a file with unsaved changes is
-  not found until it is saved.
+- An Orca plugin cannot decorate Orca's Source editor, so the inline blame lives in the plugin's own file view (a file
+  opened from the Git or Commit panel), not in the file's Source tab.
 - Not included: changelists, shelve and stash UI, patches, pull requests, managing worktrees, commit checks, GPG, a submodule
   UI, committing single lines of a file.
 

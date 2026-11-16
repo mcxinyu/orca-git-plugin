@@ -18,10 +18,7 @@
   // `editor`: the custom editor frame (panels/editor.html); its document says which view it is (see start())
   let view = (me && me.dataset.view) || '';
   const editor = view === 'editor';
-  // `blame`: the Blame view of a file's own tab (panels/blame.html, hosts/orca/blame.js); a frame like the editor's
-  const blame = view === 'blame';
-  const framed = editor || blame;
-  if (framed) view = '';
+  if (editor) view = '';
   const ui = (me && me.dataset.ui) || '../../../ui/';
   // This folder, named from the UI folder. Not from `me.src`: in the running Orca (1.4.255) a frame's script `src`
   // reads as a path from the plugin root ("hosts/orca/panel.js"), which does not resolve from the page.
@@ -103,11 +100,6 @@
     const Git = window.Git;
     Git.host.product = PRODUCT;
     if (editor) view = (await documentKind()) === 'diff' ? 'tab' : '';
-    if (blame) {
-      view = 'tab';
-      // Orca expects a custom editor to ask for its document soon after it loads: ask now, blame.js reads the answer.
-      Git.orca.blameDocument = Promise.resolve().then(() => window.orca.document.get()).catch(() => null);
-    }
     Git.addTR({
       'No workspace is focused in Orca.': 'Orca\'da odaklanmış bir çalışma alanı yok.',
       'The workspace {0} is on another host ({1}). {2} opens local repositories only.': '{0} çalışma alanı başka bir makinede ({1}). {2} yalnız yerel depoları açar.',
@@ -224,8 +216,8 @@
     };
     // Everything a side panel opens (ui/git/openers.js: a diff, a file, File History, a comparison…) goes to Orca's center
     // area when the worker can put it there (hosts/orca/tab.mjs); "not taken" (a linked worktree, editor.open refused…)
-    // runs it here as before. The editor frames (the center tab, "+ ▸ Git", a file's Blame view) never forward.
-    if (!framed) {
+    // runs it here as before. The editor frames (the center tab, "+ ▸ Git") never forward.
+    if (!editor) {
       Git.host.forward = function (name, args) {
         const w = Git.orca.workspace, root = Git.repo && Git.repo.root;
         if (!w || w.status !== 'local' || !w.workspaceId || !root) return false;
@@ -239,13 +231,13 @@
     // Centre presence (ui/git/centre.js): Orca tells nothing when the center tab closes or hides, so the tab's frame
     // reports itself to the worker while it renders and the panels ask the worker (hosts/orca/tab.mjs). The panels and
     // the editor frame may not share a storage, so the base's localStorage default is not used here.
-    if (!framed) {
+    if (!editor) {
       Git.host.centreShown = (root) => Git.orca.request('centre.state', { root }, { retries: 2, timeoutMs: 3000 }).then((r) => !!(r && r.shown), () => false);
-    } else if (editor && view === 'tab') {
+    } else if (view === 'tab') {
       Git.host.centreReport = (s) => Git.orca.request('centre.beat', s, { retries: 0, timeoutMs: 3000 });
     }
-    // the view of the frame: the center tab's (hosts/orca/editor.js) or a file's Blame (hosts/orca/blame.js)
-    if (view === 'tab') await load(here + (blame ? 'blame.js' : 'editor.js'));
+    // the view of the center tab's frame (hosts/orca/editor.js)
+    if (view === 'tab') await load(here + 'editor.js');
     await load('git/boot.js');
     if (ws.status === 'local') tell(ws);
 
