@@ -10,7 +10,7 @@
   'use strict';
   // The product name a user reads under Orca and the prefix of the panels' localStorage keys (hosts/orca/README.md
   // "Identity"; the worker's are in product.mjs). Handed to the UI before it loads (ui/host/product.js lists the fields).
-  const PRODUCT = 'Git Panel';
+  const PRODUCT = 'HayBrains Git';
   const STORAGE_PREFIX = 'git-panel:';
   const pre = (window.Git = window.Git || {});
   pre.host = Object.assign(pre.host || {}, { product: PRODUCT, storagePrefix: STORAGE_PREFIX });
@@ -229,6 +229,9 @@
       Git.host.forward = function (name, args) {
         const w = Git.orca.workspace, root = Git.repo && Git.repo.root;
         if (!w || w.status !== 'local' || !w.workspaceId || !root) return false;
+        // Another worktree picked in this panel (ui/git/worktrees.js): the worker addresses the tab's note file by the
+        // workspace, so the page opens here, as in a linked worktree.
+        if (Git.worktrees && Git.worktrees.away()) return false;
         return Git.orca.request('tab.open', { workspaceId: w.workspaceId, root, opener: { name, args } }, { retries: 2, timeoutMs: 20000 })
           .then((r) => !!(r && r.taken), () => false);
       };

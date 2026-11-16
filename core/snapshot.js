@@ -150,10 +150,31 @@ async function stillChanged(git, entries) {
   return new Set(both.filter((p) => !changed.has(p)));
 }
 
+/** The status the snapshot reads its local changes from (also worktree.list's change counts). */
+export const STATUS_ARGS = ['status', '--porcelain=v2', '-z', '--branch', '--untracked-files=all', '--find-renames', '--ignore-submodules=none'];
+
+/**
+ * The Commit view's lists from one parsed status (`parseStatusV2`): `local` (changes and unversioned files, before
+ * LOCAL_CAP) and `conflicts`. Entries whose work tree is back at HEAD's content are no change (stillChanged).
+ */
+export async function localLists(git, st) {
+  const unchanged = await stillChanged(git, st.entries);
+  const local = [];
+  const conflicts = [];
+  for (const e of st.entries) {
+    if (e.type === 'u') { conflicts.push({ path: e.path, kind: conflictKind(e.xy) }); continue; }
+    if (e.type === '!') continue;
+    if (unchanged && unchanged.has(e.path)) continue;
+    const c = localChange(e);
+    if (c) local.push(c);
+  }
+  return { local, conflicts };
+}
+
 /** `git` is (args, opts) => runGit(repo.root, args, background options). */
 export async function buildSnapshot(repo, git) {
   const [statusOut, refs, remotes, meCfg, recentRaw] = await Promise.all([
-    git(['status', '--porcelain=v2', '-z', '--branch', '--untracked-files=all', '--find-renames', '--ignore-submodules=none']),
+    git(STATUS_ARGS),
     readRefs(git),
     readRemotes(git),
     readMe(git),
@@ -167,16 +188,7 @@ export async function buildSnapshot(repo, git) {
   const head = branchName ? { branch: branchName } : { detached: headId };
   if (branchName && !headId) head.unborn = true;
 
-  const unchanged = await stillChanged(git, st.entries);
-  const local = [];
-  const conflicts = [];
-  for (const e of st.entries) {
-    if (e.type === 'u') { conflicts.push({ path: e.path, kind: conflictKind(e.xy) }); continue; }
-    if (e.type === '!') continue;
-    if (unchanged && unchanged.has(e.path)) continue;
-    const c = localChange(e);
-    if (c) local.push(c);
-  }
+  const { local, conflicts } = await localLists(git, st);
   const localTruncated = local.length > LOCAL_CAP;
   if (localTruncated) local.length = LOCAL_CAP;
 

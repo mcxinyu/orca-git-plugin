@@ -7,7 +7,7 @@
 //   note                                             a panel's diagnostics line for the plugin log (panel.js)
 //   tab.open · tab.current                           a diff in Orca's center area (tab.mjs)
 //   centre.beat · centre.state                       whether a diff shows there now (tab.mjs, ui/git/centre.js)
-// The product is "Git Panel" here (product.mjs): the engine keeps its settings in ~/.config/git-panel (GIT_PANEL_HOME
+// The product is "HayBrains Git" here (product.mjs): the engine keeps its settings in ~/.config/git-panel (GIT_PANEL_HOME
 // overrides it, tests pass `opts.home`) and its files in <git dir>/git-panel/; its log on disk in <home>/log/.
 import fs from 'node:fs';
 import { createEngine } from '../../core/engine.js';

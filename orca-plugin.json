@@ -2,13 +2,19 @@
   "manifestVersion": 2,
   "execution": "trusted-worker",
   "id": "git-panel",
-  "name": "Git Panel",
-  "version": "0.1.5",
-  "description": "An IntelliJ IDEA-style Git tool window for the focused workspace: local changes and commit, the Log with its graph and branches, diffs and histories in the editor area.",
-  "author": { "name": "Git Panel" },
+  "name": "HayBrains Git",
+  "version": "0.1.6",
+  "description": "An IntelliJ IDEA-style Git tool window: commit, the Log with its branch graph, diffs and blame.",
+  "author": { "name": "HayBrains Git" },
   "license": "MIT",
   "repository": "https://github.com/omerfarukgzr/orca-git-plugin",
   "icon": "hosts/orca/icons/git.png",
+  "cover": { "path": "hosts/orca/media/cover.webp", "alt": "The commit graph of the Git panel's Log with coloured branch lanes and ref labels, beside the Commit panel's ticked local changes" },
+  "screenshots": [
+    { "path": "hosts/orca/media/sidebar.webp", "alt": "Right sidebar panels: Commit with changes ticked and a message; Git with the Log and a selected commit's files; Git with its Branches drawer", "caption": "Commit and Git panels in the right sidebar" },
+    { "path": "hosts/orca/media/diff-tab.webp", "alt": "A commit's change to a TypeScript file, side by side, in a tab of Orca's center area opened from the Git panel", "caption": "A diff opens as a tab in the center" },
+    { "path": "hosts/orca/media/blame.webp", "alt": "A file's tab switched to the Blame view: the author, date and subject of the caret line shown after it", "caption": "Blame beside Source in a file's tab" }
+  ],
   "engines": { "orca": ">=1.4.248" },
   "main": "hosts/orca/worker.mjs",
   "pluginApi": 1,
@@ -22,7 +28,7 @@
       { "id": "log", "title": "Git", "icon": "branch", "entry": "hosts/orca/panels/log.html", "ui": "html" }
     ],
     "customEditors": [
-      { "id": "view", "title": "Git Panel", "extensions": [".gitpanel"], "entry": "hosts/orca/panels/editor.html", "priority": "default", "icon": "hosts/orca/icons/git.png" },
+      { "id": "view", "title": "HayBrains Git", "extensions": [".gitpanel"], "entry": "hosts/orca/panels/editor.html", "priority": "default", "icon": "hosts/orca/icons/git.png" },
       { "id": "blame", "title": "Blame", "entry": "hosts/orca/panels/blame.html", "priority": "option", "icon": "hosts/orca/icons/git.png", "extensions": [".go", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json", ".md", ".yaml", ".yml", ".toml", ".xml", ".html", ".css", ".scss", ".vue", ".svelte", ".py", ".rb", ".php", ".java", ".kt", ".swift", ".c"] },
       { "id": "blame2", "title": "Blame", "entry": "hosts/orca/panels/blame.html", "priority": "option", "icon": "hosts/orca/icons/git.png", "extensions": [".h", ".cpp", ".hpp", ".cs", ".rs", ".sh", ".sql", ".dart", ".lua", ".gradle", ".properties", ".ini", ".conf", ".cfg", ".txt", ".csv", ".tsv", ".graphql", ".gql", ".proto", ".tf", ".hcl", ".ex"] },
       { "id": "blame3", "title": "Blame", "entry": "hosts/orca/panels/blame.html", "priority": "option", "icon": "hosts/orca/icons/git.png", "extensions": [".exs", ".erl", ".hs", ".ml", ".scala", ".clj", ".r", ".jl", ".pl", ".pm", ".m", ".mm", ".zsh", ".bash", ".fish", ".ps1", ".kts", ".groovy", ".less", ".sass", ".styl", ".htm", ".xhtml", ".jsonc"] },

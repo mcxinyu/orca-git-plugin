@@ -2388,13 +2388,13 @@ return He}()
 
   // ---------------------------------------------------------------- menus (the shell's menu component, menu.js)
   /** Opens a menu at an element (below it) or at a mouse event. `items`: { label, shortcut, checked, disabled, danger, action, children } or '-'. */
-  Git.menu = function (at, items) {
+  Git.menu = function (at, items, opts) {
     let x, y;
     if (at && at.nodeType) { const r = at.getBoundingClientRect(); x = r.left; y = r.bottom + 2; }
     else if (at && at.clientX != null) { x = at.clientX; y = at.clientY; if (at.preventDefault) at.preventDefault(); }
     else { x = at.x; y = at.y; }
     const list = items.filter((it, i) => !(it === '-' && (i === 0 || i === items.length - 1 || items[i - 1] === '-')));
-    if (Git.popupMenu) return Git.popupMenu.show(x, y, list, { width: Git.popupMenu.width(list) });
+    if (Git.popupMenu) return Git.popupMenu.show(x, y, list, { width: (opts && opts.width) || Git.popupMenu.width(list) });
     return fallbackMenu(x, y, list);
   };
   function fallbackMenu(x, y, items) {
@@ -3184,7 +3184,8 @@ return He}()
    prototype's shell menu so menus look exactly as there, with no host code.
    Styles: ui/css/shell.css (.cmenu, .cm-*, .cm-glyph); its three glyphs are drawn here (glyph()).
    Git.popupMenu.show(x, y, items, { width = 248, native = false }) -> menu | null · .close() · .isOpen()
-     items: { label, icon?, iconHTML?, shortcut?, disabled?, danger?, checked?, action?, children?, title?, why? } | '-' | { header }
+     items: { label, icon?, iconHTML?, shortcut?, disabled?, danger?, checked?, action?, children?, title?, why?, bold?, hint?, tag?, badgeHTML?, key? } | '-' | { header }
+     (`key`: the row's data-key, for a caller that updates a row's `.cm-short` in place)
      (`title`: the row's tooltip; `why`: on a disabled row, the reason, shown under the label and as the tooltip)
    ↑↓ move, → opens a submenu, ← closes it, Return/Space run, Esc or a click outside closes, a letter jumps.
    The Esc rule (ui.js): focus sits in a read-only text field inside the menu (the "focus sink", ui.js), so Esc reaches
@@ -3244,11 +3245,14 @@ return He}()
       const tail = it.children ? glyph('chevron.right', 'cm-arrow') : it.shortcut ? '<span class="cm-short">' + esc(it.shortcut) + '</span>' : '';
       // `why`: the reason a disabled item cannot run (IntelliJ shows it in the status bar): a dim second line + tooltip
       const why = it.disabled && it.why ? '<span class="cm-why t t11">' + esc(it.why) + '</span>' : '';
+      // `bold`, `hint` (dim text after the label, cut first), `tag` (a quiet word), `badgeHTML` (a small icon after them)
+      const more = (it.hint ? '<span class="cm-hint t t12 shrink">' + esc(it.hint) + '</span>' : '')
+        + (it.tag ? '<span class="cm-tag t t11">' + esc(it.tag) + '</span>' : '') + (it.badgeHTML ? '<span class="cm-badge">' + it.badgeHTML + '</span>' : '');
       const label = why ? '<span class="cm-two shrink"><span class="cm-title t t13">' + esc(it.label) + '</span>' + why + '</span>'
-        : '<span class="cm-title t t13 shrink">' + esc(it.label) + '</span>';
+        : '<span class="cm-title t t13 shrink' + (it.bold ? ' cm-bold' : '') + '">' + esc(it.label) + '</span>' + more;
       const body = icon + label + '<span class="cm-gap"></span>' + tail;
       const el = html('<div class="cm-row' + (it.danger ? ' danger' : '') + (it.disabled ? ' is-disabled' : '') + (why ? ' has-why' : '') + '" role="menuitem" aria-disabled="'
-        + (it.disabled ? 'true' : 'false') + '" data-i="' + i + '">' + check + body + '</div>');
+        + (it.disabled ? 'true' : 'false') + '" data-i="' + i + '"' + (it.key ? ' data-key="' + esc(it.key) + '"' : '') + '>' + check + body + '</div>');
       if (it.title || why) el.title = it.title || it.why;
       el.addEventListener('mouseenter', () => { if (it.disabled) return; this.setHighlight(i); this.openSub(i, false); });
       el.addEventListener('mouseleave', () => { if (this.highlighted === i && this.openSubmenu !== i) this.setHighlight(null); });
@@ -3357,7 +3361,8 @@ return He}()
     items.forEach((it) => {
       if (!it || it === '-' || !it.label) return;
       const w = ruler.measureText(it.label).width + (it.shortcut ? ruler.measureText(it.shortcut).width + 28 : 0)
-        + (it.checked !== undefined ? 25 : 0) + (it.children ? 22 : 0) + (it.iconHTML || it.icon ? 25 : 0);
+        + (it.checked !== undefined ? 25 : 0) + (it.children ? 22 : 0) + (it.iconHTML || it.icon ? 25 : 0)
+        + (it.hint ? ruler.measureText(it.hint).width * 12 / 13 + 9 : 0) + (it.tag ? ruler.measureText(it.tag).width * 11 / 13 + 21 : 0) + (it.badgeHTML ? 23 : 0);
       if (w > widest) widest = w;
       const why = it.disabled && it.why ? ruler.measureText(it.why).width * 11 / 13 + (it.checked !== undefined ? 25 : 0) : 0;
       if (why > widest) widest = why;
@@ -7423,6 +7428,9 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
       .concat(recent.map((r) => ({ label: r.name, shortcut: r.root === cur ? '' : null, checked: r.root === cur, disabled: !r.exists,
         action: () => { if (r.root !== cur) W.open(r.root); } })), ['-', { label: t('Open…'), action: () => W.picker() }]));
   }
+  // the Worktrees chip and the strip while another worktree is shown (worktrees.js)
+  const wtChip = () => (Git.worktrees ? Git.worktrees.chip() : null);
+  const wtStrip = () => (Git.worktrees ? Git.worktrees.strip() : null);
   function buildTop() {
     const tool = (icon, title, id, onClick) => Git.toolBtn({ icon, title, id, onClick });
     const repoBtn = h('button.wb-repo', { type: 'button', id: 'wb-repo', title: Git.repo.root || '', onclick: (e) => repoMenu(e.currentTarget) },
@@ -7431,7 +7439,7 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     const busy = h('div.wb-busy#wb-busy', { hidden: true, role: 'status' });
     const A = Git.actions;
     top = h('div.wb-top', { role: 'toolbar', 'aria-label': 'Git' },
-      repoBtn, widget, busy, h('span.g-spacer'),
+      repoBtn, wtChip(), widget, busy, h('span.g-spacer'),
       h('div.wb-vcs', { role: 'group', 'aria-label': 'VCS' },
         tool('vcs/update', t('Update Project…') + '  ⌘T', 'wb-update', () => A.updateProject()),
         tool('vcs/commit', t('Commit…') + '  ⌘K', 'wb-commit', () => (A.checkinProject ? A.checkinProject() : F.showRight('commit'))),
@@ -7689,7 +7697,7 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     rightSplit = Git.splitter({ target: right, edge: 'left', min: 260, max: () => Math.max(300, window.innerWidth - 420), key: 'wb-right' });
     if (!right.style.width) right.style.width = '400px';
     main = h('div.wb-main', center, rightSplit, right, stripe);
-    root = h('div#wb.g-root.wb', buildTop(), main);
+    root = h('div#wb.g-root.wb', buildTop(), wtStrip(), main);
     Git.clear(host).appendChild(root);
     if (Git.branchWidget) Git.branchWidget.mount(top.widget);    // the widget draws only when connected
     drawBusy();
@@ -7703,10 +7711,12 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     // A host that keeps several repositories behind one panel (Orca: workspaces that share a name) names the one that
     // is shown, so nobody commits into another project: Git.host.repoChip() -> an element, or nothing.
     const chip = Git.host && typeof Git.host.repoChip === 'function' ? Git.host.repoChip() : null;
-    if (chip && view !== 'commit' && view !== 'files' && view !== 'tab') root.insertBefore(h('div.wb-rhead.wb-rhead-chip', chip), body);
+    // Worktrees beside the repository chip (worktrees.js), and under the header the strip while another one shows
+    if (view !== 'tab') { const strip = wtStrip(); if (strip) root.insertBefore(strip, body); }
+    if (chip && view !== 'commit' && view !== 'files' && view !== 'tab') root.insertBefore(h('div.wb-rhead.wb-rhead-chip', chip, wtChip()), root.firstChild);
     if (view === 'commit') {
       const widget = h('div#g-widget.wb-widget');
-      root.insertBefore(h('div.wb-rhead', h('span.wb-rtitle', { lang: 'en' }, t('Commit')), chip, widget), body);
+      root.insertBefore(h('div.wb-rhead', h('span.wb-rtitle', { lang: 'en' }, t('Commit')), chip, wtChip(), widget), root.firstChild);
       if (Git.branchWidget) Git.branchWidget.mount(widget);   // root is connected already
       if (Git.views.commit) Git.views.commit.mount(body);
     } else if (view === 'log') { if (Git.views.log) Git.views.log.mount(body); }
@@ -7714,7 +7724,7 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     else if (view === 'branches') { if (Git.views.branches) Git.views.branches.mount(body); }
     else if (view === 'tab') { if (Git.views.tab) Git.views.tab.mount(body); }
     else if (view === 'files') {
-      root.insertBefore(h('div.wb-rhead', h('span.wb-rtitle', t('Files')), chip), body);
+      root.insertBefore(h('div.wb-rhead', h('span.wb-rtitle', t('Files')), chip, chip ? wtChip() : null), root.firstChild);
       if (Git.views.files) Git.views.files.mount(body);
     }
   }
@@ -7764,15 +7774,28 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     if (Git.picker) Git.picker.mount(document.getElementById('app'), W.pickerOpts);
   };
   /** Opens a repository and shows the workbench (or the single view). Errors lead to the picker or the retry page. */
-  W.open = async function (path) {
-    W.loading(String(path).split('/').filter(Boolean).pop() || path);
+  /** `o.pick`: show another worktree of the repository in this page (worktrees.js); the home stays what it was, so
+      the URL and the last repository keep the home. A home open shows the pick kept for that home, if any. */
+  W.open = async function (path, o) {
+    const WT = Git.worktrees;
+    const target = WT ? WT.beforeOpen(path, o) : path;
+    W.loading(String(target).split('/').filter(Boolean).pop() || target);
     try {
-      const rootPath = await Git.store.open(path);
+      let rootPath;
+      try { rootPath = await Git.store.open(target); } catch (e) {
+        // a kept pick whose worktree went away: forget it and open the home itself
+        const lost = e && (e.code === 'unreachable' || e.code === 'transport');
+        if (WT && target !== path && !(o && o.pick) && !lost) { WT.forget(); return W.open(path); }
+        // a picked worktree that cannot be opened (removed meanwhile): say why and go home
+        if (WT && o && o.pick && !lost && WT.home() && target !== WT.home()) { if (Git.actions && Git.actions.errorNotice) Git.actions.errorNotice(e); return WT.back(); }
+        throw e;
+      }
       if (!rootPath) return;
-      prefs().set('lastRepo', rootPath);
+      const homeRoot = WT ? WT.afterOpen(rootPath) : rootPath;
+      prefs().set('lastRepo', homeRoot);
       try {
         const q = new URLSearchParams(location.search);
-        q.set('repo', rootPath);
+        q.set('repo', homeRoot);
         history.replaceState(null, '', location.pathname + '?' + q.toString());
       } catch (e) { /* sandboxed */ }
       state.tabs = [];
@@ -7891,7 +7914,9 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     // unless it is a plain diff (whose own heads say what it is). Pages opened from it stack with Back as anywhere.
     let head = h('div.wb-rhead.wb-page-head', back, p.titleEl);
     if (p.base) head = p.plain ? null : h('div.wb-page-slim', p.titleEl);
-    p.el = h('div.wb-page', { role: 'region', class: p.base ? 'wb-page-base' : '', dataset: { page: p.id, kind: p.kind } }, head, p.body);
+    // while another worktree is shown its strip stays under the page's head too (worktrees.js)
+    const strip = Git.worktrees && !p.base ? Git.worktrees.strip() : null;
+    p.el = h('div.wb-page', { role: 'region', class: p.base ? 'wb-page-base' : '', dataset: { page: p.id, kind: p.kind } }, head, strip, p.body);
     drawTitle(p);
   }
   function mount(p) {
@@ -7994,6 +8019,254 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     e.preventDefault();
     close(stack[stack.length - 1].id);
   });
+})();
+;
+/* ==== git/worktrees.js ==== */
+/* Worktrees (IntelliJ's Git ▸ Worktrees list, help "Use Git worktrees"): a chip beside the repository and branch chips
+   of every header that has them, shown when the repository has more than one worktree; its list (the shell menu) has
+   one row per worktree with its branch and how many changes the Commit view would list there (worktree.list,
+   docs/PROTOCOL.md). Picking a row shows that worktree's folder in this same page (Git.workbench.open(path,
+   { pick: true })): nothing is checked out, nothing moves. While the page shows another worktree than its home (the
+   folder the host opened it for) a strip under the header names it and offers Back.
+   The pick is kept per view in localStorage with its home, so a re-created frame (Orca builds a panel's frame again
+   when its sidebar tab shows) shows it again; opening another home forgets it.
+     Git.worktrees.chip() → element · .strip() → element | null · .show(path) · .back() · .away() · .home() · .list()
+     Git.worktrees.beforeOpen(path, o) → the folder to open · .afterOpen(root) → the home root · .forget()   (workbench.js) */
+(function () {
+  'use strict';
+  const Git = window.Git;
+  const h = Git.h, t = (...a) => Git.t(...a);
+  const WT = (Git.worktrees = {});
+
+  Git.addTR({
+    'Worktrees': 'Worktrees', '1 change': '1 değişiklik', '{0} changes': '{0} değişiklik', 'main': 'main', 'linked': 'linked',
+    'locked': 'locked', 'prunable': 'prunable', 'home': 'başlangıç', 'Back to {0}': '{0} klasörüne dön',
+    'Showing worktree': 'Gösterilen worktree', 'Other worktrees have changes': 'Başka worktree\'lerde değişiklik var',
+    'Changes could not be read': 'Değişiklikler okunamadı', 'The folder is gone': 'Klasör yok',
+  });
+  // IntelliJ's GitIcons.Worktree (git4idea, ui/git/icons/worktree_dark.svg; icons/index.md); icons.js is generated
+  // from the platform icons only, so this one is added here.
+  if (Git.ICONS && !Git.ICONS['vcs/worktree']) {
+    Git.ICONS['vcs/worktree'] = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">'
+      + '<path d="M2.5 7.5H8.5L13.5 2.5" stroke="#CED0D6" stroke-linecap="round" stroke-linejoin="round"/>'
+      + '<path d="M10.5 2.5H13.5V5.5" stroke="#CED0D6" stroke-linecap="round" stroke-linejoin="round"/>'
+      + '<path d="M8.5 7.5L13.5 12.5" stroke="#CED0D6" stroke-linecap="round" stroke-linejoin="round"/>'
+      + '<path d="M10.5 12.5H13.5V9.5" stroke="#CED0D6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  }
+
+  // ---------------------------------------------------------------- the pick, kept per view (localStorage)
+  const memory = new Map();
+  const viewName = () => (Git.workbench && Git.workbench.view) || 'workbench';
+  const pickKey = () => Git.storagePrefix() + 'worktree.shown:' + viewName();
+  const storage = () => { try { return window.localStorage || null; } catch (e) { return null; } };
+  function readPick() {
+    let text = null;
+    try { const s = storage(); text = s ? s.getItem(pickKey()) : null; } catch (e) { text = null; }
+    if (text == null) text = memory.get(pickKey()) || null;
+    try {
+      const v = text ? JSON.parse(text) : null;
+      return v && typeof v.home === 'string' && typeof v.shown === 'string' && typeof v.homePath === 'string' ? v : null;
+    } catch (e) { return null; }
+  }
+  function writePick(v) {
+    const k = pickKey();
+    if (!v) { memory.delete(k); try { const s = storage(); if (s) s.removeItem(k); } catch (e) { /* refused */ } return; }
+    const text = JSON.stringify(v);
+    memory.set(k, text);
+    try { const s = storage(); if (s) s.setItem(k, text); } catch (e) { /* full or refused: memory keeps it */ }
+  }
+
+  // ---------------------------------------------------------------- home and what is shown
+  let home = null;          // { root, path }: the folder the host opened this page for
+  let pending = null;       // the open in flight: { path, pick, restore }
+  WT.home = () => (home ? home.root : null);
+  /** True while the page shows another folder than its home. */
+  WT.away = () => !!(home && Git.repo.root && Git.repo.root !== home.root);
+  /** Which folder W.open(path, o) opens: a pick opens `path`; a home open shows the kept pick of that home, if any
+      (and forgets a pick that belongs to another home). */
+  WT.beforeOpen = function (path, o) {
+    const pick = !!(o && o.pick) && !!home;
+    if (pick) { pending = { path, pick: true }; return path; }
+    const kept = readPick();
+    if (kept && (kept.homePath === path || kept.home === path)) { pending = { path, restore: kept }; return kept.shown; }
+    if (kept) writePick(null);
+    pending = { path };
+    return path;
+  };
+  /** After the store opened `root`: records it and answers the home root (the one the page's URL keeps). */
+  WT.afterOpen = function (root) {
+    const p = pending || { path: root };
+    pending = null;
+    if (p.pick) {
+      if (root === home.root) writePick(null);
+      else writePick({ homePath: home.path, home: home.root, shown: root });
+    } else if (p.restore) {
+      home = { root: p.restore.home, path: p.path };
+      if (root === home.root) writePick(null);
+    } else home = { root, path: p.path };
+    data.at = 0;
+    return home.root;
+  };
+  /** A kept pick that cannot be opened any more (the worktree went away). */
+  WT.forget = () => { writePick(null); pending = null; };
+  WT.show = (path) => (Git.workbench && path ? Git.workbench.open(path, { pick: true }) : null);
+  WT.back = () => (home ? WT.show(home.root) : null);
+
+  // ---------------------------------------------------------------- the list
+  const data = { common: null, list: null, at: 0, counted: false };
+  let inflight = null;
+  const cacheKey = (common) => Git.storagePrefix() + 'worktrees:' + common;
+  /** The last list of this repository without its counts (the chip shows at once on a new frame). */
+  function cached(common) {
+    try {
+      const s = storage(), v = s ? JSON.parse(s.getItem(cacheKey(common)) || 'null') : null;
+      return Array.isArray(v) ? v.filter((w) => w && typeof w.path === 'string').map((w) => Object.assign({}, w, { changes: null })) : null;
+    } catch (e) { return null; }
+  }
+  function remember(common, list) {
+    try { const s = storage(); if (s) s.setItem(cacheKey(common), JSON.stringify(list.map((w) => Object.assign({}, w, { changes: null })))); } catch (e) { /* refused */ }
+  }
+  WT.list = function () {
+    const common = Git.repo.commonDir;
+    if (!common) return null;
+    if (data.common !== common) { data.common = common; data.list = cached(common); data.counted = false; data.at = 0; }
+    return data.list;
+  };
+  /** Reads worktree.list (at most once in 2 s unless `force`); redraws the chips, the strips and an open list. */
+  WT.load = function (force) {
+    const root = Git.repo.root, common = Git.repo.commonDir;
+    if (!root || !Git.backend) return Promise.resolve(null);
+    WT.list();
+    if (inflight && inflight.root === root && !force) return inflight.p;
+    if (!force && data.counted && Date.now() - data.at < 2000) return Promise.resolve(data.list);
+    const mine = { root };
+    mine.p = Git.backend.call('worktree.list', { repo: root }).then((res) => {
+      if (inflight === mine) inflight = null;
+      if (Git.repo.root !== root || data.common !== common) return null;
+      data.list = res.worktrees || [];
+      data.counted = true;
+      data.at = Date.now();
+      remember(common, data.list);
+      redraw();
+      return data.list;
+    }, () => { if (inflight === mine) inflight = null; return null; });
+    inflight = mine;
+    return mine.p;
+  };
+  const shownRoot = () => Git.repo.root;
+  const others = (list) => (list || []).filter((w) => w.path !== shownRoot());
+
+  // ---------------------------------------------------------------- the chip
+  const chips = new Set();
+  function paintChip(el) {
+    const list = WT.list();
+    const n = list ? list.length : 0;
+    el.hidden = n < 2;
+    const dirty = others(list).some((w) => w.changes > 0);
+    el.querySelector('.wb-wt-n').textContent = String(n);
+    el.querySelector('.wb-wt-dot').hidden = !dirty;
+    el.title = t('Worktrees') + (dirty ? '\n' + t('Other worktrees have changes') : '');
+    el.setAttribute('aria-label', t('Worktrees') + ': ' + n);
+  }
+  WT.chip = function () {
+    const el = h('button.wb-repo.wb-wt', { type: 'button', id: 'wb-worktrees', hidden: true, 'aria-haspopup': 'true', onclick: (e) => open(e.currentTarget) },
+      h('span.wb-wt-ic', Git.icon('vcs/worktree'), h('span.wb-wt-dot', { hidden: true })), h('span.wb-wt-n', ''));
+    chips.add(el);
+    paintChip(el);
+    WT.load();
+    return el;
+  };
+
+  // ---------------------------------------------------------------- the list (the shell menu)
+  let menu = null;
+  const countText = (w) => (w.changes == null ? '' : w.changes === 0 ? '' : w.changes === 1 ? t('1 change') : t('{0} changes', w.changes));
+  function tip(w) {
+    const words = [w.main ? t('main') : t('linked')];
+    if (w.locked) words.push(t('locked') + (w.lockReason ? ': ' + w.lockReason : ''));
+    if (w.prunable) words.push(t('prunable') + (w.prunableReason ? ': ' + w.prunableReason : ''));
+    const lines = [w.path, words.join(', ')];
+    if (data.counted && w.changes == null && !w.prunable) lines.push(t('Changes could not be read'));
+    return lines.join('\n');
+  }
+  function items(list) {
+    const lockHTML = (Git.ICONS || {})['general/locked'] || '';
+    return [{ header: t('Worktrees'), label: t('Worktrees'), disabled: true }].concat(list.map((w) => ({
+      key: w.path, label: w.name, bold: !!w.main, hint: w.branch || (w.head ? Git.short(w.head) : ''),
+      tag: home && w.path === home.root ? t('home') : null, badgeHTML: w.locked ? lockHTML : null,
+      checked: w.path === shownRoot(), disabled: !!w.prunable, title: tip(w),
+      // the count's place is kept while it is read: the same width, a quiet dot
+      shortcut: data.counted ? countText(w) : '·',
+      action: () => { if (w.path !== shownRoot()) WT.show(w.path); },
+    })));
+  }
+  /** Wide enough for the longest row with a count of "999 changes", never wider than the page. */
+  function widthFor(list) {
+    const probe = items(list).map((it) => (it.header ? it : Object.assign({}, it, { shortcut: t('{0} changes', 999) })));
+    const w = Git.popupMenu ? Git.popupMenu.width(probe) : 260;
+    return Math.max(220, Math.min(w, window.innerWidth - 16));
+  }
+  function open(anchor) {
+    const list = WT.list();
+    if (!list || !list.length) return;
+    menu = Git.menu(anchor, items(list), { width: widthFor(list) });
+    const shownAt = menu;
+    WT.load(true).then(() => { if (menu === shownAt) updateMenu(anchor); });
+  }
+  /** The open list after a new answer: counts in place; another set of worktrees opens the list again. */
+  function updateMenu(anchor) {
+    const el = menu && menu.el;
+    if (!el || !el.isConnected) { menu = null; return; }
+    const list = WT.list() || [];
+    const rows = Array.prototype.slice.call(el.querySelectorAll('.cm-row[data-key]'));
+    const same = rows.length === list.length && rows.every((r, i) => r.dataset.key === list[i].path);
+    if (!same) { if (Git.popupMenu) Git.popupMenu.close(); if (anchor.isConnected) open(anchor); return; }
+    const its = items(list);
+    rows.forEach((r, i) => {
+      const s = r.querySelector('.cm-short');
+      if (s) s.textContent = its[i + 1].shortcut;
+      r.title = its[i + 1].title;
+    });
+  }
+  Git.on('menu-close', () => { menu = null; });
+
+  // ---------------------------------------------------------------- the strip
+  const strips = new Set();
+  function paintStrip(el) {
+    const list = WT.list() || [];
+    const w = list.find((x) => x.path === shownRoot());
+    const branch = Git.repo.head && Git.repo.head.branch ? Git.repo.head.branch : Git.repo.headId ? Git.short(Git.repo.headId) : '';
+    el.querySelector('.wb-wt-strip-name').textContent = (w && w.name) || Git.repo.name || '';
+    el.querySelector('.wb-wt-strip-branch').textContent = branch;
+    el.title = (w ? tip(w) : Git.repo.root || '');
+  }
+  WT.strip = function () {
+    if (!WT.away()) return null;
+    const homeName = String(home.root).replace(/\/+$/, '').split('/').pop();
+    const el = h('div.wb-wt-strip', { role: 'status' },
+      Git.icon('vcs/worktree'),
+      h('span.wb-wt-strip-text', h('span.wb-wt-strip-what', t('Showing worktree')), h('span.wb-wt-strip-name'), h('span.wb-wt-strip-branch')),
+      h('button.wb-wt-back', { type: 'button', id: 'wb-wt-back', title: home.root, onclick: () => WT.back() }, Git.icon('general/chevronLeft', 14), h('span', t('Back to {0}', homeName))));
+    strips.add(el);
+    paintStrip(el);
+    return el;
+  };
+
+  function redraw() {
+    chips.forEach((el) => { if (el.isConnected) paintChip(el); else chips.delete(el); });
+    strips.forEach((el) => { if (el.isConnected) paintStrip(el); else strips.delete(el); });
+  }
+  // The shown worktree's own changes move its count (and the branch in the strip); the other worktrees are not
+  // watched, so their counts are read again at most every 15 s while something changes, and when the page shows again.
+  let lastMove = 0;
+  Git.on('change', (ev) => {
+    redraw();
+    const what = (ev && ev.what) || [];
+    if (!data.counted || !(what.indexOf('worktree') >= 0 || what.indexOf('refs') >= 0 || what.indexOf('state') >= 0)) return;
+    if (Date.now() - lastMove < 15000) return;
+    lastMove = Date.now();
+    if (chips.size) WT.load(true);
+  });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && chips.size && Git.repo.root) WT.load(true); });
 })();
 ;
 /* ==== git/picker.js ==== */

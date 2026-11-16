@@ -1,6 +1,6 @@
-# Git Panel for Orca
+# HayBrains Git for Orca
 
-An IntelliJ IDEA-style Git tool window for [Orca](https://github.com/stablyai/orca): local changes and commit, the Log
+HayBrains Git is an IntelliJ IDEA-style Git tool window for [Orca](https://github.com/stablyai/orca): local changes and commit, the Log
 with its graph, branches, merge, rebase (interactive too) and conflict resolution, for the repository of the focused
 workspace.
 
@@ -33,6 +33,9 @@ Needs Orca 1.4.248 or newer and `git` on the `PATH`. Developed and tested on mac
 - **Blame beside Source**: a file's own tab gets a "Blame" view in its view toggle (the pen icon beside Source, for
   the common source file types). It shows the file read-only; click a line to see who last changed it.
 - **Console**: every `git` command the plugin runs, as it ran.
+- **Worktrees**: when the repository has more than one worktree (say, one per agent session), a chip in the panel's
+  header lists them with their branch and how many changes each has. Pick one to see its changes, diffs and Log in the
+  same panel, without checking anything out; a strip names it and takes you back.
 - English by default; Turkish can be chosen in each panel's View Options.
 - **Your editor font**: diffs, the file view with blame and the Console use the font family, size and line height of
   Orca's file editor (Settings, editor zoom included) and follow it when it changes (Orca 1.4.256 or newer; older
@@ -75,11 +78,13 @@ Nothing is written into a working tree.
 ## Limits
 
 - A workspace on another machine (SSH, WSL) is not supported; the panel shows the repository picker instead.
-- In a linked worktree, diffs open inside the panel instead of a center tab.
+- In a linked worktree, or while the panel shows another worktree than the workspace's, diffs open inside the panel
+  instead of a center tab.
+- Worktrees can be listed and shown, not created, removed, locked or pruned.
 - An Orca plugin cannot decorate Orca's Source editor, so the inline blame lives in the plugin's own file view and in
   the "Blame" view of a file's tab. Orca gives that view the file's text, not its path: a file with unsaved changes is
   not found until it is saved.
-- Not included: changelists, shelve and stash UI, patches, pull requests, a worktree UI, commit checks, GPG, a submodule
+- Not included: changelists, shelve and stash UI, patches, pull requests, managing worktrees, commit checks, GPG, a submodule
   UI, committing single lines of a file.
 
 ## This repository
