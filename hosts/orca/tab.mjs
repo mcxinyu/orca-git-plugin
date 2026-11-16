@@ -7,8 +7,10 @@
 // shows lives here, per repository root: the current opener, in memory and in <home>/orca-tabs.json (a worker or Orca
 // restart keeps it). Only for a repository whose root IS the workspace folder and whose `.git` is a directory: a
 // linked worktree (`.git` is a file) or a repository below the workspace gets no note and no tab, nothing is ever
-// written into a working tree, and the panel opens it itself.
-//   tab.open    { workspaceId, root, opener: { name, args } } -> { taken: true } | { taken: false, reason }
+// written into a working tree, and the panel opens it itself. A panel of such a workspace that shows another worktree
+// of the repository (ui/git/worktrees.js) still gets the tab: `opener.worktree` names that worktree, `root` stays the
+// workspace folder, and the tab's frame shows the worktree before it runs the opener (hosts/orca/editor.js).
+//   tab.open    { workspaceId, root, opener: { name, args, worktree? } } -> { taken: true } | { taken: false, reason }
 //   tab.current { root } -> { opener | null }
 // Centre presence (ui/git/centre.js): Orca says nothing when the tab is closed or hidden, so the tab's frame reports
 // itself while it renders, and a report older than PRESENCE_TTL counts as gone.
@@ -89,6 +91,25 @@ export function noteDir(ws, root) {
   if (!st.isDirectory()) return null;                                 // a linked worktree's `.git` is a file
   return path.join(a, '.git', PRODUCT.id);
 }
+/**
+ * `wt` as a real path when it is a linked worktree of the repository at `root`: its `.git` file names a folder right
+ * under root's `.git/worktrees`. Read from the files git keeps, no git process; anything else is null.
+ */
+export function linkedWorktree(root, wt) {
+  if (!str(wt) || !path.isAbsolute(wt)) return null;
+  const a = real(root), b = real(wt);
+  if (!a || !b || a === b) return null;
+  let text;
+  try {
+    const file = path.join(b, '.git');
+    if (!fs.lstatSync(file).isFile()) return null;
+    text = fs.readFileSync(file, 'utf8');
+  } catch (e) { return null; }
+  const m = /^gitdir: (.+)$/m.exec(text);
+  if (!m) return null;
+  const gitdir = real(path.resolve(b, m[1].trim())), store = real(path.join(a, '.git', 'worktrees'));
+  return gitdir && store && path.dirname(gitdir) === store ? b : null;
+}
 /** Writes the marker when it is missing; an existing file is never touched. */
 export function ensureNote(dir) {
   fs.mkdirSync(dir, { recursive: true });
@@ -108,7 +129,11 @@ export function createTabs({ host, home, bridge, log = () => {}, now = Date.now 
     if (!root) return { opener: null };
     if (mem.has(root)) return { opener: mem.get(root) };
     const hit = stored().find((e) => e[0] === root);
-    const opener = hit ? cleanOpener(hit[1]) : null;
+    let opener = hit ? cleanOpener(hit[1]) : null;
+    if (opener && hit[1] && hit[1].worktree != null) {
+      const wt = linkedWorktree(root, hit[1].worktree);
+      if (wt) opener.worktree = wt; else opener = null;                 // that worktree is gone: nothing to show
+    }
     if (opener) mem.set(root, opener);
     return { opener };
   }
@@ -126,8 +151,15 @@ export function createTabs({ host, home, bridge, log = () => {}, now = Date.now 
     if (!ws || !isLocalHost(ws) || typeof ws.path !== 'string' || !path.isAbsolute(ws.path)) return no('workspace');
     const dir = noteDir(ws.path, input.root);
     if (!dir) return no('folder');
-    try { ensureNote(dir); } catch (e) { return no('note'); }
     const root = real(input.root);
+    // A panel that shows another worktree of the repository (ui/git/worktrees.js) names it: the tab is still the
+    // workspace folder's, and shows that worktree. Only a linked worktree of this very repository counts.
+    if (input.opener.worktree != null) {
+      const wt = linkedWorktree(root, input.opener.worktree);
+      if (!wt) return no('worktree');
+      spec.worktree = wt;
+    }
+    try { ensureNote(dir); } catch (e) { return no('note'); }
     remember(root, spec);
     bridge.broadcast('tab', 'tab', { root, opener: spec });  // a tab that is open shows it at once
     try {

@@ -32,8 +32,9 @@ Needs Orca 1.4.248 or newer and `git` on the `PATH`. Developed and tested on mac
 - **Annotate** (blame) in the file view, and an inline blame at the end of the line you click.
 - **Console**: every `git` command the plugin runs, as it ran.
 - **Worktrees**: when the repository has more than one worktree (say, one per agent session), a chip in the panel's
-  header lists them with their branch and how many changes each has. Pick one to see its changes, diffs and Log in the
-  same panel, without checking anything out; a strip names it and takes you back.
+  header lists them with their branch and how many changes each has. Pick one to see its changes and Log in the same
+  panel, without checking anything out; a strip names it and takes you back. Its diffs open in the center tab too,
+  which then says which worktree it shows.
 - **Stash**: IntelliJ's Stash dialog (Git ▸ Stash Changes…) and a Stash tab beside Commit with each stash's files,
   their diffs, Apply, Pop, Unstash… (also as a new branch), Drop and Clear. A dropped or cleared stash is kept for 14
   days and Restore puts it back; Smart Checkout's own stash is put back by its id, never another session's.
@@ -63,6 +64,8 @@ merge. This plugin asks first, and when told to go on it moves the file's conten
 
 - `trusted-worker`: the engine runs `git` as your user, in a Node.js process of its own.
 - `workspace:read`: which workspace is focused, the list of workspaces with their folders, and their change events.
+  When several workspaces share a name (every project's main worktree is called `main`) and Orca does not say which
+  one is focused, the ids of their terminals are read to tell them apart; no terminal content is read.
 - `workspace:write`: only to open a file or a diff tab in Orca's editor area.
 - One status bar item and one command ("HayBrains Git: Show Git Panel"); with a status bar item, Orca keeps the
   plugin's worker running while the plugin is enabled. The click runs Orca's own command-line tool
@@ -75,7 +78,7 @@ No network access of its own: the only traffic is what `git` does with your remo
 | Where | What |
 |---|---|
 | `<repository>/.git/git-panel/` | the trash described above, small state files, the note file behind the diff tab; dropped stashes under `stash-trash/` with refs `refs/git-panel/stash-trash/…` that keep them for Restore |
-| `~/.config/git-panel/` | settings, and `log/` with one file per day (7 days, at most 20 MB a day) |
+| `~/.config/git-panel/` | settings, which folder a terminal id was last seen in (at most 300, to tell workspaces of one name apart), and `log/` with one file per day (7 days, at most 20 MB a day) |
 
 The log holds git commands with their duration and exit code, operations and page errors. It holds no file content,
 no diff and no commit message text, and user names and passwords in URLs are removed.
@@ -85,8 +88,8 @@ Nothing is written into a working tree.
 ## Limits
 
 - A workspace on another machine (SSH, WSL) is not supported; the panel shows the repository picker instead.
-- In a linked worktree, or while the panel shows another worktree than the workspace's, diffs open inside the panel
-  instead of a center tab.
+- When the focused workspace itself is a linked worktree, diffs open inside the panel instead of a center tab (Orca
+  opens a center tab only for a file inside the workspace, and nothing is written into a working tree).
 - Worktrees can be listed and shown, not created, removed, locked or pruned.
 - An Orca plugin cannot decorate Orca's Source editor, so the inline blame lives in the plugin's own file view (a file
   opened from the Git or Commit panel), not in the file's Source tab.

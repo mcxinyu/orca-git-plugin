@@ -69,14 +69,53 @@ async function contextOf(host, given) {
   if (given === null) return null;                      // the panel saw: nothing is focused
   if (given && typeof given === 'object' && typeof given.displayName === 'string') {
     return { displayName: given.displayName, branch: typeof given.branch === 'string' ? given.branch : null,
-      workspaceId: typeof given.workspaceId === 'string' ? given.workspaceId : null, terminals: [] };
+      workspaceId: typeof given.workspaceId === 'string' ? given.workspaceId : null,
+      terminals: terminalIds(given).map((id) => ({ id })) };
   }
   return host.call('workspace.readContext', {});
+}
+
+const MAX_TERMINALS = 50;      // what `terminal.list` answers at most
+/** The ids of the terminals a context lists (the focused workspace's own). */
+export function terminalIds(context) {
+  const list = context && Array.isArray(context.terminals) ? context.terminals : [];
+  return list.map((x) => x && x.id).filter((id) => typeof id === 'string' && id.length > 0 && id.length <= 200).slice(0, MAX_TERMINALS);
+}
+
+/**
+ * Which of `candidates` (folders that fit the focused name) holds the focused terminals, or null. A context without a
+ * workspace id still lists its terminals, and a terminal belongs to one workspace: first what was learned before
+ * (`memo.get(id)` → folder), then Orca's own `terminal.list` of every candidate (host API 1.7; an Orca without it, or
+ * a refusal, is no evidence). Only one candidate counts; two that fit decide nothing.
+ */
+export async function ownerByTerminals(host, context, candidates, memo) {
+  const ids = terminalIds(context);
+  if (!ids.length || !Array.isArray(candidates) || candidates.length < 2) return null;
+  if (memo) {
+    const folders = new Set(ids.map((id) => memo.get(id)).filter(Boolean));
+    const known = candidates.filter((c) => folders.has(c.path));
+    if (known.length === 1) return known[0];
+    if (known.length > 1) return null;
+  }
+  if (!host || typeof host.call !== 'function' || (typeof host.has === 'function' && !host.has('terminal.list'))) return null;
+  const want = new Set(ids), owners = [];
+  for (const c of candidates) {
+    try {
+      const r = await host.call('terminal.list', { workspaceId: c.workspaceId });
+      if (r && Array.isArray(r.terminals) && r.terminals.some((x) => x && want.has(x.id))) owners.push(c);
+    } catch (e) { /* no such method in this Orca, or refused */ }
+  }
+  return owners.length === 1 ? owners[0] : null;
 }
 
 /**
  * The focused workspace as resolveWorkspace() describes it; Orca refusals become { status: 'error', code }.
  * `opts.choice(name, branch)` answers the folder remembered for an ambiguous name, if any.
+ * `opts.terminals` ({ get(id), learn(ids, folder) }) remembers which folder a terminal was seen in.
+ * When several folders fit the name and Orca named no id, the focused terminals decide (`byTerminals: true`). A
+ * remembered choice is only a guess for that name: it is taken when no terminal is focused (nothing tells the folders
+ * apart) and not when terminals are focused of which none is known to be in that folder. Those may be another
+ * project's workspace of the same name, so the answer is `ambiguous` again: one question, and its answer files them.
  */
 export async function focusedWorkspace(host, opts = {}) {
   try {
@@ -84,7 +123,20 @@ export async function focusedWorkspace(host, opts = {}) {
     if (!context) return { status: 'none' };
     const list = await host.call('workspace.list', {});
     const prefer = opts.choice && typeof context.displayName === 'string' ? opts.choice(context.displayName, context.branch) : null;
-    return resolveWorkspace(context, list, { prefer });
+    let w = resolveWorkspace(context, list, { prefer });
+    const memo = opts.terminals || null, ids = terminalIds(context);
+    const several = Array.isArray(w.candidates) && w.candidates.length > 1 && (w.status === 'ambiguous' || w.chosen);
+    if (several && ids.length) {
+      const owner = await ownerByTerminals(host, context, w.candidates, memo);
+      if (owner) {
+        w = { status: 'local', workspaceId: owner.workspaceId, name: owner.name, path: owner.path, branch: owner.branch, byTerminals: true, candidates: w.candidates };
+      } else if (w.chosen && memo && !ids.some((id) => memo.get(id) === w.path)) {
+        w = { status: 'ambiguous', name: w.name, branch: typeof context.branch === 'string' ? context.branch : null, count: w.candidates.length, candidates: w.candidates };
+      }
+    }
+    // what Orca itself said (an id, the only folder of that name, its terminal list) is remembered; a guess is not
+    if (memo && ids.length && w.status === 'local' && !w.chosen) memo.learn(ids, w.path);
+    return w;
   } catch (e) {
     return { status: 'error', code: (e && e.code) || 'action_failed', message: String((e && e.message) || e) };
   }
@@ -92,9 +144,11 @@ export async function focusedWorkspace(host, opts = {}) {
 
 /**
  * Remembers `path` as the owner's answer for the ambiguous name that is focused right now. Only a folder Orca lists
- * for that name counts. `store`: { get(key), set(key, path) }. Returns the new resolution.
+ * for that name counts. `store`: { get(key), set(key, path) }. Returns the new resolution. The focused terminals are
+ * filed under that folder too (`memo`, see focusedWorkspace): the next time they are focused nobody is asked, and
+ * another project's workspace of the same name is told apart from this one.
  */
-export async function chooseWorkspace(host, store, input) {
+export async function chooseWorkspace(host, store, input, memo) {
   const want = input && typeof input.path === 'string' ? input.path : '';
   try {
     const context = await contextOf(host, input && input.context);
@@ -104,6 +158,8 @@ export async function chooseWorkspace(host, store, input) {
     const candidates = open.candidates || [];
     if (!candidates.some((c) => c.path === want)) return { status: 'error', code: 'invalid_params', message: 'not a folder of the focused workspace' };
     store.set(contextKey(context.displayName, context.branch), want);
+    const ids = terminalIds(context);
+    if (memo && ids.length) memo.learn(ids, want);
     return resolveWorkspace(context, list, { prefer: want });
   } catch (e) {
     return { status: 'error', code: (e && e.code) || 'action_failed', message: String((e && e.message) || e) };

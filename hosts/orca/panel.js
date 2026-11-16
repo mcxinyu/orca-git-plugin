@@ -215,16 +215,18 @@
       return open.call(W, p);
     };
     // Everything a side panel opens (ui/git/openers.js: a diff, a file, File History, a comparison…) goes to Orca's center
-    // area when the worker can put it there (hosts/orca/tab.mjs); "not taken" (a linked worktree, editor.open refused…)
-    // runs it here as before. The editor frames (the center tab, "+ ▸ Git") never forward.
+    // area when the worker can put it there (hosts/orca/tab.mjs); "not taken" (a workspace that is a linked worktree,
+    // editor.open refused…) runs it here as before. The editor frames (the center tab, "+ ▸ Git") never forward.
     if (!editor) {
       Git.host.forward = function (name, args) {
         const w = Git.orca.workspace, root = Git.repo && Git.repo.root;
         if (!w || w.status !== 'local' || !w.workspaceId || !root) return false;
-        // Another worktree picked in this panel (ui/git/worktrees.js): the worker addresses the tab's note file by the
-        // workspace, so the page opens here, as in a linked worktree.
-        if (Git.worktrees && Git.worktrees.away()) return false;
-        return Git.orca.request('tab.open', { workspaceId: w.workspaceId, root, opener: { name, args } }, { retries: 2, timeoutMs: 20000 })
+        // Another worktree picked in this panel (ui/git/worktrees.js): the tab belongs to the workspace's own folder (the
+        // worker addresses its note file by it), so the opener goes there with the worktree it is about, and the tab
+        // shows that worktree (hosts/orca/editor.js).
+        const WT = Git.worktrees, away = !!(WT && WT.away() && WT.home());
+        const opener = away ? { name, args, worktree: root } : { name, args };
+        return Git.orca.request('tab.open', { workspaceId: w.workspaceId, root: away ? WT.home() : root, opener }, { retries: 2, timeoutMs: 20000 })
           .then((r) => !!(r && r.taken), () => false);
       };
     }

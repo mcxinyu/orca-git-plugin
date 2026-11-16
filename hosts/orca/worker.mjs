@@ -42,6 +42,35 @@ function choiceStore(home) {
   };
 }
 
+const TERMINALS = 'orca-terminals.json';
+const TERMINALS_CAP = 300;
+/**
+ * The folder each terminal was last seen in: <home>/orca-terminals.json, [[terminalId, path], …], oldest first. It
+ * tells workspaces of one name apart when Orca names no workspace id (hosts/orca/workspace.mjs focusedWorkspace).
+ * Kept in memory (this worker is its only writer) and written only when something new was learned.
+ */
+function terminalStore(home) {
+  let seen = null;
+  const all = () => {
+    if (!seen) {
+      const rows = home.readJson(TERMINALS, []);
+      seen = new Map((Array.isArray(rows) ? rows : []).filter((e) => Array.isArray(e) && typeof e[0] === 'string' && typeof e[1] === 'string'));
+    }
+    return seen;
+  };
+  return {
+    get: (id) => all().get(id) || null,
+    learn(ids, folder) {
+      const m = all();
+      let changed = false;
+      for (const id of ids) if (m.get(id) !== folder) { m.delete(id); m.set(id, folder); changed = true; }
+      if (!changed) return;
+      while (m.size > TERMINALS_CAP) m.delete(m.keys().next().value);
+      try { home.writeJson(TERMINALS, Array.from(m)); } catch (e) { /* memory keeps it */ }
+    },
+  };
+}
+
 /** The plugin's manifest: orca-plugin.json next to this file (the repository) or at the plugin root (the packed plugin). */
 function pluginManifest() {
   for (const rel of ['./orca-plugin.json', '../../orca-plugin.json']) {
@@ -75,6 +104,7 @@ export function start(orca, opts = {}) {
   for (const [name, fn] of Object.entries(bridge.handlers)) handle(name, fn);
   const home = createHome(homeDir);
   const choices = choiceStore(home);
+  const terminals = terminalStore(home);
   const tabs = createTabs({ host: orca.host, home, bridge, log });
 
   // ---- the status bar item and its command (statusbar.mjs, showpanel.mjs; README "Status bar")
@@ -95,7 +125,7 @@ export function start(orca, opts = {}) {
     let ctx = eventContext;
     if (ctx === undefined) ctx = await orca.host.call('workspace.readContext', {});
     if (ctx && typeof ctx.workspaceId !== 'string' && panelContext && sameFocus(ctx, panelContext.context)) ctx = panelContext.context;
-    return focusedWorkspace(orca.host, { context: ctx === undefined ? null : ctx, choice });
+    return focusedWorkspace(orca.host, { context: ctx === undefined ? null : ctx, choice, terminals });
   }
   // Feature-detected: an Orca without `statusBar.update` (or a test's fake without it) gets no item and no command.
   const hasStatusBar = !!(orca.host && typeof orca.host.has === 'function' && orca.host.has('statusBar.update'));
@@ -132,11 +162,11 @@ export function start(orca, opts = {}) {
   // `input.context`: what the panel's own `workspace.readContext` answered (it carries the workspace id in the running app)
   handle('workspace', (input) => {
     if ('context' in input) panelReported(input.context);
-    return focusedWorkspace(orca.host, { context: 'context' in input ? input.context : undefined, choice });
+    return focusedWorkspace(orca.host, { context: 'context' in input ? input.context : undefined, choice, terminals });
   });
   // The owner's answer when several workspaces carry the focused name (Orca calls every project's main worktree `main`).
   handle('workspace.choose', async (input) => {
-    const out = await chooseWorkspace(orca.host, choices, input);
+    const out = await chooseWorkspace(orca.host, choices, input, terminals);
     if (status) status.refocus();
     return out;
   });

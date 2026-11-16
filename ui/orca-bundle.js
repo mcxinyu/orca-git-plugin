@@ -2634,7 +2634,11 @@ return He}()
 
   // ---------------------------------------------------------------- splitter
   /** A drag handle that resizes `target`. `o`: { target, edge: 'left'|'right'|'top'|'bottom' (the side of target the handle is on),
-      min, max, key (remembered size), onResize } */
+      min, max, key (remembered size), onResize(px), onStart() (a drag is about to resize for the first time),
+      onReset() (the handle was double clicked: the remembered size is forgotten and the owner goes back to its own
+      default; without it a double click does nothing) }.
+      A press that moves less than DRAG_START px resizes and stores nothing. */
+  const DRAG_START = 2;
   Git.splitter = function (o) {
     const horizontal = o.edge === 'left' || o.edge === 'right';
     const handle = h('div.g-split', { class: horizontal ? 'h' : 'v', role: 'separator', 'aria-orientation': horizontal ? 'vertical' : 'horizontal' });
@@ -2672,11 +2676,16 @@ return He}()
       const size = o.target.getBoundingClientRect()[prop];
       const sign = o.edge === 'left' || o.edge === 'top' ? -1 : 1;
       document.body.classList.add(horizontal ? 'g-resizing-h' : 'g-resizing-v');
-      let last = size, done = false;
+      let last = null, done = false;                             // last: null until the drag has resized once
       const move = (ev) => {
         if (ev.pointerId !== id) return;
         if (ev.buttons === 0) { end(); return; }                 // released where this document did not see it
-        last = apply(size + sign * ((horizontal ? ev.clientX : ev.clientY) - start));
+        const by = (horizontal ? ev.clientX : ev.clientY) - start;
+        if (last === null) {
+          if (Math.abs(by) < DRAG_START) return;                 // a click, or the hand's tremble in a double click
+          if (o.onStart) o.onStart();
+        }
+        last = apply(size + sign * by);
       };
       const finish = (ev) => { if (!ev || ev.pointerId === undefined || ev.pointerId === id) end(); };
       function end() {
@@ -2689,7 +2698,7 @@ return He}()
         window.removeEventListener('blur', end);
         try { if (handle.hasPointerCapture && handle.hasPointerCapture(id)) handle.releasePointerCapture(id); } catch (err) { /* gone */ }
         document.body.classList.remove('g-resizing-h', 'g-resizing-v');
-        if (o.key) prefs().set('size.' + o.key, Math.round(last));
+        if (o.key && last !== null) prefs().set('size.' + o.key, Math.round(last));
       }
       // captured events are retargeted to the handle and bubble to the document; uncaptured ones reach it directly
       document.addEventListener('pointermove', move);
@@ -2697,6 +2706,12 @@ return He}()
       document.addEventListener('pointercancel', finish);
       handle.addEventListener('lostpointercapture', finish);
       window.addEventListener('blur', end);
+    });
+    // dblclick is not one of the mouse events a cancelled pointerdown suppresses
+    if (o.onReset) handle.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      if (o.key) prefs().set('size.' + o.key, 0);
+      o.onReset();
     });
     return handle;
   };
@@ -8122,8 +8137,10 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     // unless it is a plain diff (whose own heads say what it is). Pages opened from it stack with Back as anywhere.
     let head = h('div.wb-rhead.wb-page-head', back, p.titleEl);
     if (p.base) head = p.plain ? null : h('div.wb-page-slim', p.titleEl);
-    // while another worktree is shown its strip stays under the page's head too (worktrees.js)
-    const strip = Git.worktrees && !p.base ? Git.worktrees.strip() : null;
+    // while another worktree is shown its strip stays under the page's head too (worktrees.js). A bare view shows
+    // the worktree its host put there, so its strip only says which one (also on the first page): no way back.
+    const strip = Git.worktrees ? Git.worktrees.strip() : null;
+    if (strip && bare()) { const back = strip.querySelector('.wb-wt-back'); if (back) back.remove(); }
     p.el = h('div.wb-page', { role: 'region', class: p.base ? 'wb-page-base' : '', dataset: { page: p.id, kind: p.kind } }, head, strip, p.body);
     drawTitle(p);
   }
@@ -9602,8 +9619,10 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
      Commit Details at the right; one splitter sets the bottom pane's height, one the files' width.
    - narrow (root class `narrow`): the commits on top (one-line rows, a compact date instead of Author and Date), under
      them Commit Details (their content's height, at most 58 % of the pane, until the line under them is dragged) over
-     Changed Files; one splitter sets the bottom pane's height, one the details' height. The bottom pane takes its
-     content's height while that fits (about one row over its share at most), so a list never scrolls a few pixels.
+     Changed Files; one splitter sets the bottom pane's height, one the details' height. Until one of the two is
+     dragged the bottom pane takes its content's height while that fits (about one row over its share at most), so a
+     list never scrolls a few pixels; dragged, the pane is as tall as it was dragged. A double click on a line gives
+     its automatic size back.
    In narrow and medium the Branches pane is a drawer over the Log from the left, opened by the toolbar's Branches
    button (#gl-branches-open); it closes on the scrim, Escape, the pane's hide button and whenever the pane changes the
    Log. Opening or closing it never changes the wide arrangement's "show branches" choice (opts.branches).
@@ -9675,11 +9694,16 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     // ---- splitters: a handle over the bottom pane per arrangement (each remembers its own height), one between the
     // files and the details in medium. They size CSS variables of the root, not the panes' inline styles, so the wide
     // arrangement's own sizes (log-right, log-files) stay what they are.
+    // A line that was dragged stays where it was put, and a double click on it gives its default back.
     const proxy = (el) => ({ style: {}, getBoundingClientRect: () => el.getBoundingClientRect() });
     const bottomMax = () => (root.clientHeight ? Math.max(MIN_BOTTOM, root.clientHeight - MIN_COMMITS) : 4000);
+    // The narrow pane's height was stored under `log-bottom-narrow` while a dragged height was only a share its content
+    // was fitted into: what is stored there is not what was shown, so it is not read.
+    const KEY = { medium: 'log-bottom-medium', narrow: 'log-bottom-narrow-fixed' };
     const bottom = (which) => {
-      const split = Git.splitter({ target: proxy(right), edge: 'top', min: MIN_BOTTOM, max: bottomMax, key: 'log-bottom-' + which,
-        onResize: (px) => { sizes[which] = px; if (mode === which) place(); } });
+      const split = Git.splitter({ target: proxy(right), edge: 'top', min: MIN_BOTTOM, max: bottomMax, key: KEY[which],
+        onResize: (px) => { sizes[which] = px; if (mode === which) place(); },
+        onReset: () => { sizes[which] = 0; if (mode === which) place(); } });
       split.classList.add('gl-hsplit', 'gl-hsplit-' + which);
       return split;
     };
@@ -9688,22 +9712,44 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     if (o.files && o.details) {
       const fsplit = Git.splitter({ target: proxy(o.files), edge: 'right', min: MIN_FILES,
         max: () => (right.clientWidth ? Math.max(MIN_FILES, right.clientWidth - MIN_DETAILS) : 4000), key: 'log-files-medium',
-        onResize: (px) => { sizes.files = px; if (mode === 'medium') place(); } });
+        onResize: (px) => { sizes.files = px; if (mode === 'medium') place(); },
+        onReset: () => { sizes.files = 0; if (mode === 'medium') place(); } });
       fsplit.classList.add('gl-fsplit');
       right.insertBefore(fsplit, o.files.nextSibling);
       // narrow: the line between Commit Details (above) and Changed Files. Not dragged yet: the details take their
       // content's height (at most 58 %); dragged: that height, kept inside the minimums.
       const dsplit = Git.splitter({ target: proxy(o.details), edge: 'bottom', min: MIN_DHEIGHT,
         max: () => (right.clientHeight ? Math.max(MIN_DHEIGHT, right.clientHeight - MIN_FHEIGHT - 1) : 4000), key: 'log-details-narrow',
-        onResize: (px) => { sizes.details = px; if (mode === 'narrow') place(); } });
+        // A pane still sized by its content would follow the details' new height: the line would stay where it is and
+        // the pane's top would move instead. So the pane keeps the height it has when this line is first moved.
+        onStart: () => {
+          if (mode !== 'narrow' || sizes.narrow) return;
+          sizes.narrow = Math.round(right.getBoundingClientRect().height);
+          prefs().set('size.' + KEY.narrow, sizes.narrow);
+        },
+        onResize: (px) => { sizes.details = px; if (mode === 'narrow') place(); },
+        onReset: () => {
+          sizes.details = 0;
+          if (mode !== 'narrow') return;
+          place();
+          // Details dragged shorter than their text had a scrollbar, and beside it the text wrapped into more lines.
+          // WebKit drops the scrollbar when the height is free again but keeps the lines as they were wrapped beside
+          // it (a line too many, blank space under the text): the box is laid out anew, then placed for that height.
+          const d = o.details;
+          d.style.display = 'none';
+          void d.offsetHeight;
+          d.style.display = '';
+          place();
+        } });
       dsplit.classList.add('gl-dsplit');
       right.insertBefore(dsplit, o.details);
     }
-    // ---- narrow: the bottom pane takes its content's height. A Changed Files list that overflowed its share by a few
-    // pixels scrolled those few pixels and stopped, which felt stuck. Now, while the details and the whole list fit in
-    // the share (default or dragged) plus about one row, and in the room above the commits' minimum, the pane is as
-    // tall as its content (.gl-fit: the details show whole too); a list longer than that keeps the share and scrolls
-    // by more than a row. An empty list (nothing selected yet) keeps the share.
+    // ---- narrow: until its line is dragged, the bottom pane takes its content's height. A Changed Files list that
+    // overflowed its share by a few pixels scrolled those few pixels and stopped, which felt stuck. So while the
+    // details and the whole list fit in the default share plus about one row, and in the room above the commits'
+    // minimum, the pane is as tall as its content (.gl-fit: the details show whole too); a list longer than that keeps
+    // the share and scrolls by more than a row. An empty list (nothing selected yet) keeps the share. A dragged pane
+    // (sizes.narrow) is exactly as tall as it was dragged: sized by its content, its line did not follow the pointer.
     const tree = o.files ? o.files.querySelector('.gl-ftree') : null;
     const borders = (el) => el.offsetHeight - el.clientHeight;
     /** The bottom pane's content height in narrow (0: not known, keep the share). */
@@ -9748,7 +9794,7 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
       if (H) {
         const want = sizes[mode] || Math.round(H * SHARE[mode]);
         bottom = Math.max(MIN_BOTTOM, Math.min(want, H - MIN_COMMITS));
-        if (mode === 'narrow') {
+        if (mode === 'narrow' && !sizes.narrow) {
           const c = content();
           fit = c > 0 && c <= bottom + rowH() + 8 && c <= Math.max(MIN_BOTTOM, H - MIN_COMMITS);
           if (fit) bottom = Math.max(MIN_BOTTOM, c);
