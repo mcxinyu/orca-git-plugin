@@ -31,7 +31,7 @@ export function readRepoState(repo) {
 
 /** { branches, remotes, tags } (prototype-free maps); with { replace: true } also `replace` (the refs/replace list). */
 export async function readRefs(git, opts = {}) {
-  const patterns = ['refs/heads', 'refs/remotes', 'refs/tags'];
+  const patterns = ['refs/heads', 'refs/remotes', 'refs/tags', 'refs/stash'];
   if (opts.replace) patterns.push('refs/replace');
   const out = await git(['for-each-ref', '--format=' + REF_FORMAT, ...patterns]);
   const branches = nameMap();
@@ -39,7 +39,9 @@ export async function readRefs(git, opts = {}) {
   const tags = nameMap();
   const nested = [];
   let replace = '';
+  let stash = null;
   for (const [ref, id, type, peeled, peeledType, upstream, track, symref] of parseFieldLines(out.stdout, 8)) {
+    if (ref === 'refs/stash') { stash = id; continue; }
     if (ref.startsWith('refs/heads/')) {
       const name = ref.slice(11);
       const t = parseTrack(track);
@@ -66,7 +68,8 @@ export async function readRefs(git, opts = {}) {
       if (t === 'commit') setName(tags, name, id);
     });
   }
-  const result = { branches, remotes, tags };
+  // `stash`: the top of the stash list (refs/stash) or null; never part of the Log's heads
+  const result = { branches, remotes, tags, stash };
   if (opts.replace) result.replace = replace;
   return result;
 }
@@ -202,6 +205,12 @@ export async function buildSnapshot(repo, git) {
     op.theirs.subject = subj[op.theirs.id] || null;
   }
 
+  // The stash list as ids, top first (one more git command only when there is a stash): a stash made or dropped
+  // elsewhere — also a drop below the top, which rewrites only the reflog — changes the snapshot.
+  const stashes = refs.stash
+    ? (await git(['log', '-g', '--format=%H', 'refs/stash', '--'], { okCodes: [0, 128] })).stdout.split('\n').filter(Boolean)
+    : [];
+
   const saved = readRepoState(repo);
   const favorites = Array.isArray(saved.favorites)
     ? saved.favorites.filter((n) => typeof n === 'string')
@@ -230,6 +239,7 @@ export async function buildSnapshot(repo, git) {
     // Every unmerged path, also when no operation is in progress (a smart checkout's unstash, a squash merge, a
     // conflicting changes.applyFromCommit): IntelliJ shows its Merge Conflicts node whenever such files exist.
     conflicts,
+    stashes,
     op,
     // The message git prepared while no operation runs (a squash merge, `cherry-pick -n`): the Commit view's text.
     pendingMessage: op ? null : pendingMessage(repo.gitDir, meCfg.commentChar),

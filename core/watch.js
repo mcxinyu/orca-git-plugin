@@ -6,7 +6,7 @@
 // (`isIgnored`, which also decides for the folders of a batch too large to list path by path). While `hold()` is in
 // effect (a mutating method runs) nothing is delivered; the engine refreshes itself when the method ends.
 //
-// kinds: 'refs' (HEAD, refs/, packed-refs, reftable/, config, favorites), 'index' (index, info/exclude,
+// kinds: 'refs' (HEAD, refs/, packed-refs, reftable/, config, favorites, logs/refs/stash),'index' (index, info/exclude,
 //        info/sparse-checkout, shallow), 'op' (merge/rebase/pick/revert state, prepared messages),
 //        'worktree' (files in the work tree; their paths are collected)
 // Paths are NFC on macOS: FSEvents reports names as they are on disk (Cocoa apps write them decomposed), git reports
@@ -36,7 +36,9 @@ export function classifyGitPath(rel, own = DATA_DIR) {
   if (top === 'index' || top === 'shallow' || top === 'sharedindex') return 'index';
   if (top === 'info') return parts[1] === 'exclude' || parts[1] === 'sparse-checkout' || parts[1] === 'grafts' ? 'index' : null;
   if (top === own) return parts[1] === 'state.json' ? 'refs' : null;
-  return null; // objects/, logs/, hooks/, FETCH_HEAD, ORIG_HEAD, COMMIT_EDITMSG, worktrees/<other>, …
+  // the stash list is the reflog of refs/stash: dropping stash@{1} rewrites only logs/refs/stash
+  if (top === 'logs' && parts[1] === 'refs' && parts[2] === 'stash' && parts.length === 3) return 'refs';
+  return null; // objects/, other logs/, hooks/, FETCH_HEAD, ORIG_HEAD, COMMIT_EDITMSG, worktrees/<other>, …
 }
 
 export function createWatcher(repo, opts) {

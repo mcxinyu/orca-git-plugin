@@ -74,7 +74,7 @@ const RESOLVED_CAP = 256;
 
 const NAME_RE = /^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)*$/;
 const SECTIONS = {
-  refs: ['head', 'headId', 'branches', 'remotes', 'remoteNames', 'remoteUrls', 'tags', 'favorites', 'recent', 'me'],
+  refs: ['head', 'headId', 'branches', 'remotes', 'remoteNames', 'remoteUrls', 'tags', 'favorites', 'recent', 'me', 'stashes'],
   worktree: ['local', 'localTruncated', 'conflicts'],
   op: ['op'],
 };
@@ -348,10 +348,15 @@ export function createEngine(options = {}) {
     try {
       const result = await def.handler(ctx, params);
       ctxJobs.forEach((j) => j.end('done'));
+      // ctx.staging = 'unstaged': the handler could not put the staging back as it was (index entries with flags a
+      // tree loses, core/ops/autostash.js undoStashSideEffects); every result and error says so
+      if (ctx.staging && result && typeof result === 'object' && !result.staging) result.staging = ctx.staging;
       return result === undefined ? null : result;
     } catch (err) {
       const cancelled = err && (err.cancelled || err.code === 'cancelled');
       ctxJobs.forEach((j) => j.end(cancelled ? 'cancelled' : 'failed'));
+      if (ctx.staging && err instanceof EngineError) err.data = { ...(err.data || {}), staging: ctx.staging };
+      else if (ctx.staging && err && err.name === 'GitError') { const w = toWireError(err); throw new EngineError(w.code, w.message, { ...(w.data || {}), staging: ctx.staging }); }
       throw err;
     }
   }

@@ -24,6 +24,8 @@ import extraChangesRead from './read/extra-changes.js';
 import diag from './read/diag.js';
 import locate from './read/locate.js';
 import worktrees from './read/worktrees.js';
+import stashRead from './read/stash.js';
+import stashOps from './ops/stash.js';
 
 // Mutating operations (core/ops/*.js) are imported above and appended here.
 export const METHODS = [
@@ -50,4 +52,6 @@ export const METHODS = [
   ...diag,
   ...locate,
   ...worktrees,
+  ...stashRead,
+  ...stashOps,
 ];

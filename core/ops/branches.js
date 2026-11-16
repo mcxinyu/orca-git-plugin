@@ -1,12 +1,14 @@
 // Branches and tags: checkout, branch.create, branch.rename, branch.delete, branch.setFavorite, tag.create, tag.delete.
 import { commitId } from '../read/commit.js';
-import { label } from '../repo.js';
 import {
   refuse, tryGit, headState, refuseIfBusy, checkRefName, refExists, refId, remoteNames, splitRemoteRef, checkedOutElsewhere,
-  parseWouldOverwrite, wouldOverwriteResult, pathsDifferingFrom, trash, unmerged, revList, withMessage,
+  parseWouldOverwrite, wouldOverwriteResult, pathsDifferingFrom, trash, revList, withMessage,
   resolveRef, branchOf, asJob, failedAfterSaving, unambiguous, readConfig, isCancel, lateCancel,
 } from './util.js';
-import { prepareStash, stashTop, undoStashSideEffects } from './autostash.js';
+import { prepareStash, undoStashSideEffects } from './autostash.js';
+import { readStashList } from '../read/stash.js';
+import { EngineError } from '../errors.js';
+import { findPushed, applyById, dropVerified, STASH_OPTS } from './stash-core.js';
 import { inTheWay, blockedBy, treeWrites } from './guard.js';
 
 const UNMERGED_CAP = 1000;
@@ -116,31 +118,78 @@ async function runCheckout(ctx, args, p, targetRev) {
   const pre = await prepareStash(ctx);
   if (pre.blocked) return { overwrite: { files: w.files, untracked: pre.blocked.untracked } };
   // Smart checkout: stash, check out, unstash (IntelliJ: "stash the changes, checkout and unstash them after that").
-  await ctx.git(['stash', 'push', '--quiet', '-m', label(ctx.repo) + ': smart checkout']);
-  const stash = await stashTop(ctx);
-  if (stash === pre.stash) return { overwrite: w };      // nothing was stashed: git's refusal stands, and no stash of ours is popped
+  // refs/stash is shared by every worktree: the stash is found and put back BY ID (stash-core.js), so a stash another
+  // session pushes in between is never applied here or dropped.
+  const before = (await readStashList(ctx)).map((s) => s.id);
+  const message = smartMessage();
+  await ctx.git(['stash', 'push', '--quiet', '--message=' + message], STASH_OPTS);
+  const found = await findPushed(ctx, before, from.id, message);
+  // nothing of ours was stashed (no new entry, or only entries another session pushed): git's refusal stands, nothing
+  // is put back and nothing is said to be in the stash
+  if (!found.candidates.length) return { overwrite: w };
+  const ours = found.stash;      // null: more than one candidate (ambiguous) — the changes stay in the stash
+  /**
+   * Put back = apply by id, then the verified drop. Never throws: the answer is the `smart` shape — `ok`, or where the
+   * local changes are now (`conflicts` with the paths; `kept`: still in the stash, which is named).
+   */
+  const putBack = async () => {
+    try {
+      const a = await applyById(ctx, ours, { title: 'Unstashing…' });
+      if (a.result === 'applied') {
+        try { await dropVerified(ctx, ours.id, 'checkout'); } catch (e) { return { stash: ours.id, unstash: 'kept', conflicts: [], reason: (e && e.data && e.data.reason) || (e && e.code) || 'drop_failed' }; }
+        return { stash: ours.id, unstash: 'ok', conflicts: [] };
+      }
+      if (a.result === 'conflicts') return { stash: ours.id, unstash: 'conflicts', conflicts: a.conflicts };
+      // the stash did not apply (content in the way): it stays in the list, nothing is lost
+      return { stash: ours.id, unstash: 'kept', conflicts: [], files: a.files || [], untracked: a.untracked || [], reason: a.result };
+    } catch (e) {
+      return { stash: ours.id, unstash: 'kept', conflicts: [], reason: (e && e.code) || 'failed' };
+    }
+  };
+  /** Error data naming where the local changes are when they are not back (PROTOCOL git_failed `autostash`). */
+  const keptData = (smart) => ({ autostash: smart.unstash === 'conflicts' ? 'conflicts' : 'stashed', stash: smart.stash, unstash: smart.unstash,
+    conflicts: smart.conflicts, candidates: smart.candidates || [] });
+  const ambiguous = { stash: null, candidates: found.candidates, unstash: 'kept', conflicts: [] };
+  /** After a checkout that did not happen: put back; the staging too, but only when the stash came back cleanly. */
+  const backAfterFailure = async () => {
+    if (!ours) return ambiguous;
+    const smart = await putBack();
+    if (smart.unstash === 'ok') await undoStashSideEffects(ctx, pre);
+    return smart;
+  };
   let again;
   try {
     again = await go(cmd);
   } catch (e) {
     // cancelled or killed before git switched: the local changes come back, with what was staged
-    await tryGit(ctx, ['stash', 'pop', '--quiet']);
-    await undoStashSideEffects(ctx, pre);
+    const smart = await backAfterFailure();
+    if (smart.unstash !== 'ok') {
+      if (e instanceof EngineError) e.data = { ...(e.data || {}), ...keptData(smart) };
+      else throw new EngineError(isCancel(e) ? 'cancelled' : 'git_failed', isCancel(e) ? 'cancelled' : (e && e.message) || 'checkout failed',
+        { command: (e && e.command) || null, exitCode: e && e.exitCode, stderr: e && e.stderr, ...keptData(smart) });
+    }
     throw e;
   }
   if (again.exitCode !== 0) {
-    // the checkout did not run: the stash comes back, with what was staged (a pop alone loses the staging)
-    await tryGit(ctx, ['stash', 'pop', '--quiet']);
-    await undoStashSideEffects(ctx, pre);
+    // the checkout did not run: the stash comes back, with what was staged (an apply alone loses the staging)
+    const smart = await backAfterFailure();
     const blocked = parseWouldOverwrite(again.stderr);
-    if (blocked) return { overwrite: blocked };
-    throw again.fail();
+    if (blocked) return smart.unstash === 'ok' ? { overwrite: blocked } : { overwrite: blocked, smart };
+    const err = again.fail();
+    if (smart.unstash !== 'ok') err.data = { ...(err.data || {}), ...keptData(smart) };
+    throw err;
   }
-  const pop = await tryGit(ctx, ['stash', 'pop']);
-  const u = await unmerged(ctx);
-  if (pop.exitCode === 0 && !u.size) return { trash: null, smart: { stash, unstash: 'ok', conflicts: [] } };
-  if (u.size) return { trash: null, smart: { stash, unstash: 'conflicts', conflicts: Array.from(u.keys()) } };
-  throw pop.fail();
+  // not exactly one stash of ours (another session pushed one with the same base and message at the same moment):
+  // nothing is put back on its own; the changes are kept in the stash and the result names the candidates
+  if (!ours) return { trash: null, smart: ambiguous };
+  return { trash: null, smart: await putBack() };
+}
+
+/** IntelliJ's stash message of a Smart Checkout (VcsBundle stash.changes.message.with.date), the local time to the second. */
+function smartMessage(now = new Date()) {
+  const p = (n) => String(n).padStart(2, '0');
+  return 'Uncommitted changes before Checkout at ' + now.getFullYear() + '-' + p(now.getMonth() + 1) + '-' + p(now.getDate()) + ' ' +
+    p(now.getHours()) + ':' + p(now.getMinutes()) + ':' + p(now.getSeconds());
 }
 
 export default [
@@ -190,7 +239,8 @@ export default [
         if (where) refuse(ctx, 'checked_out_elsewhere', "branch '" + branch + "' is checked out in another worktree", { branch, path: where });
       }
       const out = await runCheckout(ctx, args, p, t.id);
-      if (out.overwrite) return wouldOverwriteResult(out.overwrite, { target: p.target, kind: t.kind });
+      // `smart` beside a Would-overwrite: the checkout did not run and the local changes did not all come back (in the stash)
+      if (out.overwrite) return wouldOverwriteResult(out.overwrite, { target: p.target, kind: t.kind, ...(out.smart ? { smart: out.smart } : {}) });
       if (trackAfter) await setUpstream(ctx, branch, trackAfter);
       const after = await headState(ctx);
       return {

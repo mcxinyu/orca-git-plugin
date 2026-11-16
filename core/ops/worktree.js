@@ -3,7 +3,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { workPath } from '../repo.js';
-import { restoreTrash } from '../trash.js';
+import { restoreTrash, trashRoot } from '../trash.js';
+import { readStashTrash, restoreStashTrash } from '../stash-trash.js';
+import { readStashList } from '../read/stash.js';
+
+const hasWorktreeTrash = (repo, id) => fs.existsSync(path.join(trashRoot(repo), id, 'manifest.json'));
 import { lstat } from '../fsname.js';
 import {
   refuse, headState, currentOp, unmerged, readStatus, withMessage, checkMessage, tryGit, pathInput, PATHS_FROM_STDIN, trash,
@@ -213,6 +217,14 @@ export default [
     async handler(ctx, p) {
       // What is in the way of a saved path and is content git tracks (what the operation that made the entry put
       // there) is replaced, after being saved in the entry this returns; anything else blocks (core/trash.js).
+      // A dropped stash's entry lives in the common dir (core/stash-trash.js): any worktree's panel can restore it.
+      const stashEntry = readStashTrash(ctx.repo, p.id);
+      if (stashEntry && !hasWorktreeTrash(ctx.repo, p.id)) {
+        const listed = (await readStashList(ctx)).map((s) => s.id);
+        const back = await restoreStashTrash(ctx, p.id, listed);
+        return { result: 'restored', id: p.id, files: [], skipped: [], blocked: back.blocked, replaced: [], complete: !back.blocked.length,
+          trash: null, stashes: back.stashes, stashesSkipped: back.skipped };
+      }
       const index = await readTracked(ctx);
       const tracked = (rel, isFolder) => { const st = lstat(path.join(ctx.repo.root, rel)); return !!st && (isFolder ? index.folder(rel, st) : index.file(rel, st)); };
       return { result: 'restored', ...restoreTrash(ctx.repo, p.id, { tracked }) };

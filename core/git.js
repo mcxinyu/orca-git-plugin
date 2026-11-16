@@ -72,12 +72,16 @@ export const REDIRECT_ENV = Object.freeze([
   'GIT_LITERAL_PATHSPECS', 'GIT_EXTERNAL_DIFF', 'GIT_DIFF_OPTS', 'GIT_OPTIONAL_LOCKS', 'GIT_REF_PARANOIA',
 ]);
 const REDIRECT_SET = new Set(REDIRECT_ENV);
+// Locale variables of the host are dropped too: BASE_ENV sets LC_ALL=C and LANG=C, and LANGUAGE (which gettext reads
+// before LC_ALL wherever the locale is not "C") would otherwise stay. The engine reads some of git's English messages
+// ("Dropped stash@{n} (…)", "would be overwritten") as a second signal beside state checks.
+const LOCALE_SET = new Set(['LANGUAGE', 'LC_MESSAGES', 'LC_CTYPE', 'LC_NUMERIC', 'LC_TIME', 'LC_COLLATE', 'LC_MONETARY']);
 const REDIRECT_RE = /^(GIT_CONFIG_(KEY|VALUE)_\d+|GIT_TRACE.*)$/;
 
 /** The host environment without the variables that could move git to another repository. */
 export function cleanEnv(source = process.env) {
   const env = {};
-  for (const [k, v] of Object.entries(source)) if (!REDIRECT_SET.has(k) && !REDIRECT_RE.test(k)) env[k] = v;
+  for (const [k, v] of Object.entries(source)) if (!REDIRECT_SET.has(k) && !REDIRECT_RE.test(k) && !LOCALE_SET.has(k)) env[k] = v;
   if (source[PRODUCT.ceilingEnv]) env.GIT_CEILING_DIRECTORIES = source[PRODUCT.ceilingEnv];
   return env;
 }

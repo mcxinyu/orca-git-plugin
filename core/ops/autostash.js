@@ -12,6 +12,7 @@ import { saveTrash, restoreTrash, dropTrash, trashRoot } from '../trash.js';
 import { lstat } from '../fsname.js';
 import { readStatus, unmerged, refId, tryGit, headState, pathsDifferingFrom, trash } from './util.js';
 import { inTheWay, stashWrites, blockedBy } from './guard.js';
+import { indexHasFlags } from './stash-core.js';
 
 const OID = /^[0-9a-f]{40,64}$/;
 const readOid = (file) => { try { const t = fs.readFileSync(file, 'utf8').trim(); return OID.test(t) ? t : null; } catch { return null; } };
@@ -98,10 +99,16 @@ export function unshield(ctx, s) {
  */
 export async function undoStashSideEffects(ctx, pre) {
   await endIncomplete(ctx);
-  if (!pre) return;
+  if (!pre) return { index: 'kept' };
+  let index = 'kept';
   if (pre.index) {
     const now = await ctx.git(['write-tree'], { okCodes: [0, 128] });
-    if (now.exitCode === 0 && now.stdout.trim() !== pre.index) await ctx.git(['read-tree', pre.index]);
+    if (now.exitCode === 0 && now.stdout.trim() !== pre.index) {
+      // `read-tree` rebuilds the entries and drops per-entry flags (assume-unchanged, skip-worktree, intent-to-add):
+      // with such entries the index stays as it is and the caller says the staging was not restored
+      if (await indexHasFlags(ctx)) { index = 'unstaged'; ctx.staging = 'unstaged'; }
+      else { await ctx.git(['read-tree', pre.index]); index = 'restored'; }
+    }
   }
   for (const rel of pre.deleted) {
     let st = null;
@@ -114,6 +121,7 @@ export async function undoStashSideEffects(ctx, pre) {
     }
   }
   await ctx.git(['update-index', '-q', '--refresh'], { okCodes: [0, 1] });
+  return { index };
 }
 
 const treeOf = async (ctx, rev) => (await ctx.git(['rev-parse', '--verify', '--quiet', '--end-of-options', rev + '^{tree}'], { okCodes: [0, 1, 128] })).stdout.trim();

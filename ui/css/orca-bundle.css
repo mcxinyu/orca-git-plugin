@@ -480,10 +480,11 @@ img.ficon { display: block; object-fit: contain; pointer-events: none; -webkit-u
 .g-dialog-x { width: 26px; height: 26px; border: 0; border-radius: var(--g-radius); background: transparent; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 .g-dialog-x:hover { background: var(--g-hover); }
 .g-dialog-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
-.g-dialog-footer { display: flex; align-items: center; gap: 8px; padding: 12px 16px; flex: none; border-top: 1px solid var(--g-line); }
+/* the buttons wrap to a second line (kept to the right) where they do not fit, as in a 385 px side panel with three of them */
+.g-dialog-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; padding: 12px 16px; flex: none; border-top: 1px solid var(--g-line); }
 .g-dialog-left { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; }
 .g-confirm-text { line-height: 1.45; }
-.g-confirm-detail { margin-top: 6px; color: var(--g-dim); }
+.g-confirm-detail { margin-top: 6px; color: var(--g-dim); overflow-wrap: anywhere; }   /* a long path breaks instead of scrolling the dialog sideways */
 .g-label { color: var(--g-dim); }
 .g-form-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .g-form-row > .g-label { flex: 0 0 auto; }
@@ -1091,6 +1092,62 @@ body:has(.wb-right:not([hidden])) .g-balloons { right: calc(var(--gc-right-edge,
 .gc-drag-label > span { overflow: hidden; text-overflow: ellipsis; }
 body.gc-dragging, body.gc-dragging * { cursor: default !important; user-select: none !important; -webkit-user-select: none !important; }
 body.gc-dragging.gc-no-drop, body.gc-dragging.gc-no-drop * { cursor: not-allowed !important; }
+
+/* ---- the Stash tab (stash-view.js; IntelliJ's SavedPatchesUi): stashes on top, the selected one's files below,
+   Apply / Pop under them. The header's Commit | Stash tabs reuse the tool window tab (.g-tab). */
+.wb-rhead-tabs { display: flex; align-items: center; flex: none; }
+.wb-rhead-tabs[hidden] { display: none; }
+.gs-tabs { margin-left: -6px; }
+.gs-tabs .g-tab { flex: none; }
+#g-stash { flex: 1 1 0; min-height: 0; }                       /* shares the right column with #g-commit */
+.gs-root { min-width: 0; min-height: 0; overflow: hidden; }
+.gs-top { flex: 1 1 0; min-height: 60px; display: flex; flex-direction: column; min-width: 0; }
+.gs-list-tree { flex: 1 1 0; min-height: 0; }
+.gs-list-tree .g-row { gap: 6px; }
+.gs-list-tree .g-row-label { flex: 0 1 auto; min-width: 48px; }
+.gs-list-tree .g-row-dim { flex: none; }
+/* the date stays whole; the message and the branch label share what is left (ellipsized) */
+.gs-branch { margin-left: auto; padding-left: 8px; display: inline-flex; align-items: center; gap: 2px; min-width: 28px; flex: 0 1 auto;
+  color: var(--gl-ref-fg, var(--g-muted)); font-size: calc(var(--g-size) - 1px); }
+.gs-branch-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gs-branch .gl-tag { flex: none; }
+.gs-list-tree[hidden] { display: none; }
+.gs-empty { flex: none; margin: 32px auto 0; padding: 18px 12px; display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--g-muted); text-align: center; }
+.gs-empty[hidden] { display: none; }
+.gs-help-link { display: inline-flex; align-items: center; gap: 4px; color: var(--g-link); }
+.gs-shared { flex: none; padding: 4px 10px 6px; color: var(--g-muted); font-size: calc(var(--g-size) - 1px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gs-shared[hidden] { display: none; }
+.gs-bottom { flex: none; min-height: 0; max-height: calc(100% - 70px); display: flex; flex-direction: column; border-top: 1px solid var(--g-line); }
+.gs-bottom[hidden], .g-split[hidden] { display: none; }
+.gs-toolbar { gap: var(--gc-toolbar-gap); padding: 0 8px; }
+.gs-toolbar #gs-view { position: relative; }
+.gs-toolbar #gs-view::after { content: ""; position: absolute; right: 3px; bottom: 4px; width: 0; height: 0;
+  border-left: 4px solid transparent; border-bottom: 4px solid var(--g-icon); }
+.gs-files-wrap { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; position: relative; }
+.gs-files { flex: 1 1 0; min-height: 0; }
+.gs-files .g-row { gap: 6px; }
+.gs-files .g-row-label { flex: 0 1 auto; }
+.gs-files .g-row-dim { text-overflow: clip; flex-shrink: 1000000; }
+.gs-files .g-row.k-group .g-row-dim, .gs-files .g-row.k-dir .g-row-dim { flex-shrink: 0; }
+.gs-files-empty { position: absolute; inset: 24px 12px auto; text-align: center; color: var(--g-muted); pointer-events: none; }
+.gs-files-empty[hidden] { display: none; }
+.gs-strip { flex: none; display: flex; align-items: center; gap: 8px; padding: 9px var(--gc-pad); border-top: 1px solid var(--g-line); min-width: 0; }
+.gs-tip { display: inline-flex; color: var(--g-icon); cursor: help; }
+/* the stash dialogs (stash-dialogs.js) */
+.gs-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--g-text); }
+.gs-message.g-field { padding: 6px 8px; }
+.gs-message .g-input { min-height: 60px; resize: vertical; }
+.gs-checks { gap: 6px; }
+.gs-stashes { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: start; }
+.gs-list { height: 150px; overflow: auto; border: 1px solid var(--g-line-strong); border-radius: var(--g-radius); background: var(--g-editor); outline: none; }
+.gs-list:focus-visible { box-shadow: 0 0 0 2px var(--g-focus); }
+.gs-list-row { padding: 0 8px; height: 24px; line-height: 24px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+.gs-list-row.sel { background: var(--g-select); }
+.gs-ref { font-family: var(--g-mono); font-weight: 600; }
+.gs-side { display: flex; flex-direction: column; gap: 6px; }
+.gs-paths-list { max-height: 360px; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.gs-path { display: flex; align-items: center; gap: 6px; height: 22px; white-space: nowrap; }
+.gs-path-group { margin-top: 6px; color: var(--g-muted); }
 /* ==== git/git-diff.css ==== */
 /* Git prototype: the diff tab (diffview.js). Colors and geometry of IntelliJ's Diff Viewer; see arastirma/D-kaynak.md §5.3–5.5.
    Class names of the code tokens come from highlight.js; their colors are variables: VS Code Dark+ in the default skin,

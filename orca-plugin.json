@@ -3,7 +3,7 @@
   "execution": "trusted-worker",
   "id": "git-panel",
   "name": "HayBrains Git",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "IntelliJ IDEA-style Git: commit, Log graph, diffs and blame.",
   "author": { "name": "HayBrains Git" },
   "license": "MIT",
@@ -12,7 +12,8 @@
   "cover": { "path": "hosts/orca/media/cover.webp", "alt": "The commit graph of the Git panel's Log with coloured branch lanes and ref labels, beside the Commit panel's ticked local changes" },
   "screenshots": [
     { "path": "hosts/orca/media/sidebar.webp", "alt": "Right sidebar panels: Commit with changes ticked and a message; Git with the Log and a selected commit's files; Git with its Branches drawer", "caption": "Commit and Git panels in the right sidebar" },
-    { "path": "hosts/orca/media/diff-tab.webp", "alt": "A commit's change to a TypeScript file, side by side, in a tab of Orca's center area opened from the Git panel", "caption": "A diff opens as a tab in the center" }
+    { "path": "hosts/orca/media/diff-tab.webp", "alt": "A commit's change to a TypeScript file, side by side, in a tab of Orca's center area opened from the Git panel", "caption": "A diff opens as a tab in the center" },
+    { "path": "hosts/orca/media/stash.webp", "alt": "Right sidebar Commit panel: the Stash tab with two stashes and one's files; the Worktrees list; a linked worktree shown with Back", "caption": "Stash tab and worktrees in the Commit panel" }
   ],
   "engines": { "orca": ">=1.4.248" },
   "main": "hosts/orca/worker.mjs",
@@ -31,6 +32,15 @@
     ],
     "newFiles": [
       { "id": "git", "title": "Git", "extension": ".gitpanel", "icon": "hosts/orca/icons/git.png" }
+    ],
+    "commands": [
+      { "id": "showGitPanel", "title": "HayBrains Git: Show Git Panel", "when": "workspace" }
+    ],
+    "events": [
+      { "on": "workspace.changed" }
+    ],
+    "statusBarItems": [
+      { "id": "repository", "text": "Git", "icon": "branch", "tooltip": "HayBrains Git: the repository of the focused workspace", "command": "showGitPanel" }
     ]
   }
 }

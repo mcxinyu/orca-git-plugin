@@ -1733,7 +1733,7 @@ return He}()
       head: { branch: null, detached: null, unborn: false }, headId: null,
       branches: {}, remotes: {}, remoteNames: [], remoteUrls: {}, remoteName: 'origin', remoteUrl: '',
       tags: {}, favorites: new Set(), recent: [], me: null, meInfo: { name: '', email: '' },
-      local: [], localTruncated: false, op: null, conflicts: [],
+      local: [], localTruncated: false, op: null, conflicts: [], stashes: [],
       authors: {}, commits: new Map(),
       log: { heads: null, order: [], loaded: 0, complete: false, truncated: false },
       console: [],
@@ -1800,6 +1800,7 @@ return He}()
     R.op = st.op || null;
     R.pendingMessage = typeof st.pendingMessage === 'string' ? st.pendingMessage : null;   // squash merge, cherry-pick -n
     R.conflicts = st.conflicts || (R.op && R.op.conflicts) || [];   // every unmerged path, also without an operation
+    R.stashes = Array.isArray(st.stashes) ? st.stashes : [];        // the stash list's ids, top first (the Stash tab reads stash.list)
     memo.clear();
     return before !== R.headId + '|' + JSON.stringify(R.branches) + JSON.stringify(R.remotes) + JSON.stringify(R.tags);
   }
@@ -5335,19 +5336,22 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     const resolve = () => { if (A.resolveConflicts) A.resolveConflicts(); };
     Git.notify({ kind: 'warning', sticky: true, title: t('Local changes were not restored'),
       text: t('Uncommitted changes that were saved before {0} have conflicts with files from {1}', t(operation), from) + '\n' + t('They are kept in {0}.', 'stash@{0}'),
-      actions: [{ label: t('Resolve…'), run: resolve }] });
+      actions: [{ label: t('Resolve…'), run: resolve }].concat(viewSaved(o.stash)) });
     // the snapshot that lists the conflicted files arrives with the engine's `changed` event
     if (A.whenState) A.whenState(() => Git.conflicts().length > 0, resolve);
     return true;
   };
   /** `autostash: 'stashed'`: the local changes are in the stash list, NOT applied (the work tree had other changes by
       then, so nothing was put over them; no conflict markers). The stash is kept as stash@{0}; there is no stash UI
-      (out of scope), so the notice names the entry and the command that brings it back. */
-  A.autostashKept = function () {
+      The notice names the entry and offers IntelliJ's "View saved changes…" (the Stash tab: Pop brings them back). */
+  A.autostashKept = function (o) {
     Git.notify({ kind: 'warning', sticky: true, title: t('Local changes were not restored'),
-      text: t('They are kept in {0}.', 'stash@{0}') + '\n' + t('The working tree has other changes now, so they were not applied over them. Run {0} to get them back.', 'git stash pop') });
+      text: t('They are kept in {0}.', 'stash@{0}') + '\n' + t('The working tree has other changes now, so they were not applied over them. Run {0} to get them back.', 'git stash pop'),
+      actions: viewSaved(o && o.stash) });
     return true;
   };
+  /** IntelliJ's "View saved changes…" (GB stash.unstash.unresolved.conflict.warning.notification.show.stash.action). */
+  const viewSaved = (id) => (A.showStashes ? [{ label: t('View saved changes…'), run: () => A.showStashes(id || null) }] : []);
   Git.addTR({
     'The working tree has other changes now, so they were not applied over them. Run {0} to get them back.':
       'Çalışma kopyasında artık başka değişiklikler var; onların üzerine uygulanmadılar. Geri almak için {0} çalıştır.',
@@ -5499,7 +5503,7 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     if (!d) return null;
     const lines = [], actions = [];
     if (d.trash && d.trash.id) { lines.push(t('The content it had already thrown away was saved first.')); actions.push({ label: t('Restore'), run: () => A.restoreTrash(d.trash) }); }
-    if (d.autostash === 'stashed' || d.autostash === 'conflicts') lines.push(t('Your local changes are kept in {0}.', 'stash@{0}'));
+    if (d.autostash === 'stashed' || d.autostash === 'conflicts') { lines.push(t('Your local changes are kept in {0}.', 'stash@{0}')); actions.push(...viewSaved(d.stash)); }
     return lines.length ? { text: lines.join('\n'), actions } : null;
   }
   const baseNotify = Git.notify;
@@ -6758,12 +6762,20 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
             onRebase: () => A.rebaseOnto(ref, { branch: A.ref('local', d.branch), checkedOut: true }) });
           return true;
         }
-        if (reason === 'checked_out_elsewhere') { D().worktreeConflict({ branch: d.branch, path: d.path, onAnyway: () => again({ ignoreOtherWorktrees: true }) }); return true; }
+        if (reason === 'checked_out_elsewhere') {
+          // the page can show that worktree in place (ui/git/worktrees.js): offered first, nothing is checked out
+          const onShow = Git.worktrees && typeof Git.worktrees.show === 'function' && d.path ? () => Git.worktrees.show(d.path) : null;
+          D().worktreeConflict({ branch: d.branch, path: d.path, onAnyway: () => again({ ignoreOtherWorktrees: true }), onShow });
+          return true;
+        }
         return blocked(reason, err);
       } })
       .then((res) => {
         if (!res) return null;
         if (res.result === 'would-overwrite') {
+          // a Smart Checkout that stopped after its push and could not bring every change back: they are in the stash
+          if (res.smart && res.smart.unstash === 'conflicts') { A.autostashConflicts({ autostash: 'conflicts' }, { operation: 'checkout', from: A.current(), stash: res.smart.stash }); return res; }
+          if (res.smart) { A.autostashKept({ stash: res.smart.stash }); return res; }
           D().problem({ op: 'Checkout', files: res.files, untracked: res.untracked, force: true, onSmart: () => again({ smart: true }), onForce: () => again({ force: true }) });
           return res;
         }
@@ -6777,7 +6789,9 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
         const text = res.detached ? t('New commits may be lost because the current commit is not on any branch. Check out a branch to avoid that.') : null;
         ok(title, text, actions);
         // Smart Checkout whose stash did not come back: the shared notice (the stash stays, the files conflict)
-        if (res.smart && res.smart.unstash === 'conflicts') A.autostashConflicts({ autostash: 'conflicts' }, { operation: 'checkout', from: res.branch || o.label || name });
+        if (res.smart && res.smart.unstash === 'conflicts') A.autostashConflicts({ autostash: 'conflicts' }, { operation: 'checkout', from: res.branch || o.label || name, stash: res.smart.stash });
+        // not put back (could not be told apart, or did not apply): the changes are kept in the stash
+        if (res.smart && res.smart.unstash === 'kept') A.autostashKept({ stash: res.smart.stash });
         return res;
       });
   };
@@ -7347,6 +7361,178 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
   };
 })();
 ;
+/* ==== git/actions-stash.js ==== */
+/* Stash commands (IntelliJ's Stash dialog, Stash tab, Unstash dialogs; docs/spec-stash.md). Every command addresses a
+   stash by its commit id (the engine finds its place in the list itself); the list comes from stash.list.
+     A.stashList() -> Promise<[stash]> (the last answer is A.stashes())   A.stashChanges() (the Stash dialog)
+     A.unstashChanges() (the Unstash Changes dialog)                        A.unstashAs(stash) (Unstash… of the tab)
+     A.stashApply(stash, { index })  A.stashPop(stash, { index, branch })  A.stashDrop(stash)  A.stashClear()
+     A.showStashes(id?) (View saved changes…: the Stash tab, that stash selected)
+     A.stashMessage(text, o) (the Stash dialog's Create Stash)            A.stashRef(stash) / A.stashTitle(stash) */
+(function () {
+  'use strict';
+  const Git = window.Git;
+  const R = Git.repo;
+  const t = (...a) => Git.t(...a);
+  const A = (Git.actions = Git.actions || {});
+
+  // git terms (Stash, Pop, Drop, Unstash, index) stay as they are in Turkish
+  Git.addTR({
+    'Stash': 'Stash', 'Unstash': 'Unstash', 'Stash Changes…': 'Değişiklikleri stash\'le…', 'Unstash Changes…': 'Stash\'ten geri al…', 'Uncommitted Changes': 'Commit edilmemiş değişiklikler',
+    'Files stashed successfully': 'Dosyalar stash\'e alındı', 'View Git stashes': 'Git stash\'lerini göster', 'Failed to stash {0}': '{0} stash\'lenemedi',
+    'Stash successfully applied': 'Stash uygulandı', 'Unstash failed': 'Unstash başarısız oldu',
+    'Unstash failed due to an index conflict': 'Unstash, index çakışması yüzünden başarısız oldu',
+    'Conflicts in index. Try without Reinstate index.': 'Index\'te çakışma var. Reinstate index olmadan dene.',
+    'Local changes': 'Yerel değişiklikler', 'Changes from stash': 'Stash\'teki değişiklikler',
+    'Conflicts were not resolved during unstash': 'Unstash sırasında çakışmalar çözülmedi',
+    'Unstash is not complete, you have unresolved merges in your working tree.': 'Unstash tamamlanmadı, çalışma kopyasında çözülmemiş merge\'ler var.',
+    'Resolve conflicts…': 'Çakışmaları çöz…', 'unstash': 'unstash', 'View saved changes…': 'Saklanan değişiklikleri göster…',
+    'Dropped {0}': '{0} silindi', 'All stashes were removed': 'Bütün stash\'ler silindi',
+    'The stash is kept for 14 days: Restore puts it back.': 'Stash 14 gün saklanır: Geri getir onu geri koyar.',
+    'The stashes are kept for 14 days: Restore puts them back.': 'Stash\'ler 14 gün saklanır: Geri getir onları geri koyar.',
+    'Nothing to stash': 'Stash\'lenecek bir şey yok', 'No local changes to save': 'Saklanacak yerel değişiklik yok',
+    'The stash list changed in the meantime. Nothing was removed.': 'Stash listesi bu arada değişti. Hiçbir şey silinmedi.',
+    'The stash was applied, but it is still listed: the stash list changed in the meantime.': 'Stash uygulandı ama listede duruyor: stash listesi bu arada değişti.',
+    'The stash was applied, but it could not be removed from the list.': 'Stash uygulandı ama listeden kaldırılamadı.',
+    'Staged changes could not be put back as they were; they are in the working tree.': 'Index\'teki değişiklikler eski haline konamadı; çalışma kopyasında duruyorlar.',
+    'There are no stashes': 'Hiç stash yok', 'Stash created, but another one was made at the same moment: check the Stash tab.': 'Stash oluşturuldu ama aynı anda bir tane daha yapıldı: Stash sekmesine bak.',
+  });
+
+  let last = [];
+  let seq = 0;
+  A.stashes = () => last;
+  /** stash.list: every stash with its files (the Stash tab and the Unstash Changes dialog). */
+  A.stashList = function () {
+    const my = ++seq, root = R.root;
+    if (!root) return Promise.resolve([]);
+    return Git.backend.call('stash.list', { repo: root }).then((res) => {
+      if (my === seq && root === R.root) { last = res.stashes || []; Git.emit('stashes', last); }
+      return res.stashes || [];
+    }, () => last);
+  };
+  A.stashRef = (s) => 'stash@{' + s.index + '}';
+  /** "Stash@{0}" (GB stash.editor.diff.preview.id.change.title capitalizes the name). */
+  A.stashTitle = (s) => 'Stash@{' + s.index + '}';
+  const shownBranch = () => R.head.branch || A.current();
+
+  /** View saved changes… / View Git stashes: the Stash tab with that stash selected. */
+  A.showStashes = function (id) { if (Git.stashTab) Git.stashTab.show(id || null); };
+
+  // ---------------------------------------------------------------- Stash Changes…
+  A.stashChanges = function () { if (Git.dialogs.stash) Git.dialogs.stash(); };
+  /** The Stash dialog's Create Stash (GitStash.perform → runStashInBackground). */
+  A.stashMessage = function (message, o) {
+    o = o || {};
+    return A.run({ id: 'stash', title: t('Stash'), method: 'stash.save', params: { message, keepIndex: !!o.keepIndex, includeUntracked: !!o.includeUntracked },
+      failTitle: t('Failed to stash {0}', R.name),
+      refused: (reason) => {
+        if (reason !== 'nothing_to_stash') return false;
+        Git.notify({ kind: 'info', title: t('Nothing to stash'), text: t('No local changes to save') });
+        return true;
+      } }).then((res) => {
+      if (!res) return null;
+      if (res.result === 'would-overwrite') { Git.notify({ kind: 'error', sticky: true, title: t('Failed to stash {0}', R.name), text: A.overwriteLines(t('Stash'), res).join('\n') }); return null; }
+      const view = [{ label: t('View Git stashes'), run: () => A.showStashes(res.id) }];
+      if (!res.id && res.candidates && res.candidates.length) Git.notify({ kind: 'warning', title: t('Files stashed successfully'), text: t('Stash created, but another one was made at the same moment: check the Stash tab.'), actions: view });
+      else Git.notify({ kind: 'info', title: t('Files stashed successfully'), actions: view });
+      A.stashList();
+      return res;
+    });
+  };
+
+  // ---------------------------------------------------------------- unstash
+  A.unstashChanges = function () { if (Git.dialogs.unstash) Git.dialogs.unstash(); };
+  A.unstashAs = function (s) { if (Git.dialogs.unstashAs) Git.dialogs.unstashAs(s); };
+
+  /** What IntelliJ shows for an unstash's outcome (GitStashOperations.unstash). Returns the result or null. */
+  function outcome(s, res) {
+    if (!res) return null;
+    A.stashList();
+    if (res.result === 'conflicts') {
+      // the merge dialog: left the local changes (stage 2), right the stash (stage 3)
+      if (A.conflictContext) A.conflictContext({ kind: 'unstash', left: t('Local changes'), right: t('Changes from stash') });
+      const resolve = () => { if (A.resolveConflicts) A.resolveConflicts(); };
+      Git.notify({ kind: 'warning', sticky: true, title: t('Conflicts were not resolved during unstash'),
+        text: t('Unstash is not complete, you have unresolved merges in your working tree.'), actions: [{ label: t('Resolve conflicts…'), run: resolve }] });
+      if (A.whenState) A.whenState(() => Git.conflicts().length > 0, resolve);
+      return res;
+    }
+    if (res.result === 'index-conflict') {
+      Git.notify({ kind: 'error', title: t('Unstash failed due to an index conflict'), text: t('Conflicts in index. Try without Reinstate index.') });
+      return res;
+    }
+    if (res.result === 'would-overwrite') {
+      const text = A.overwriteLines(t('unstash'), res).concat(res.index === 'unstaged' ? [t('Staged changes could not be put back as they were; they are in the working tree.')] : []);
+      Git.notify({ kind: 'error', sticky: true, title: t('Unstash failed'), text: text.join('\n') });
+      return res;
+    }
+    // a pop whose drop could not be done: applied, and the stash is still listed (never a failure after the apply)
+    const kept = res.dropped === false && res.reason ? t(res.reason === 'stash_moved' ? 'The stash was applied, but it is still listed: the stash list changed in the meantime.'
+      : 'The stash was applied, but it could not be removed from the list.') : null;
+    Git.notify({ kind: 'info', title: t('Stash successfully applied'), text: kept });
+    return res;
+  }
+  const stashMoved = (reason) => {
+    if (reason !== 'stash_moved') return false;
+    Git.notify({ kind: 'warning', title: t('Unstash failed'), text: t('The stash list changed in the meantime. Nothing was removed.') });
+    A.stashList();
+    return true;
+  };
+  const unstashFailed = (err) => {
+    if (!err || err.code !== 'not_found') return false;
+    Git.notify({ kind: 'warning', title: t('Unstash failed'), text: t('The stash list changed in the meantime. Nothing was removed.') });
+    A.stashList();
+    return true;
+  };
+  A.stashApply = function (s, o) {
+    return A.run({ id: 'stash', title: t('Unstash'), method: 'stash.apply', params: { id: s.id, index: !!(o && o.index) },
+      failTitle: t('Unstash failed'), onError: unstashFailed }).then((res) => outcome(s, res));
+  };
+  A.stashPop = function (s, o) {
+    o = o || {};
+    const params = { id: s.id, index: !!o.index };
+    if (o.branch) params.branch = o.branch;
+    return A.run({ id: 'stash', title: t('Unstash'), method: 'stash.pop', params, failTitle: t('Unstash failed'), onError: unstashFailed,
+      refused: (reason, err) => (reason === 'exists' ? (Git.notify({ kind: 'error', title: t('Unstash failed'), text: A.errorText(err) }), true) : stashMoved(reason)) })
+      .then((res) => outcome(s, res));
+  };
+
+  // ---------------------------------------------------------------- Drop / Clear (asked first: stash-dialogs.js)
+  /** Restore of a dropped / cleared stash: trash.restore puts the stashes back on the list. */
+  A.restoreStashes = function (trash) {
+    if (!trash || !trash.id) return Promise.resolve(null);
+    return A.run({ id: 'trash.restore:' + trash.id, title: t('Restore'), method: 'trash.restore', params: { id: trash.id } }).then((res) => {
+      if (!res) return null;
+      A.stashList();
+      const back = res.stashes || [];
+      if (back.length) Git.notify({ kind: 'info', title: t('Restored {0}', back.length === 1 ? 'stash@{0}' : back.length + ' stashes') });
+      return res;
+    });
+  };
+  A.stashDrop = function (s) {
+    return A.run({ id: 'stash', title: t('Drop'), method: 'stash.drop', params: { id: s.id }, onError: unstashFailed, refused: stashMoved }).then((res) => {
+      if (!res) return null;
+      A.stashList();
+      Git.notify({ kind: 'info', title: t('Dropped {0}', A.stashRef(s)), text: t('The stash is kept for 14 days: Restore puts it back.'),
+        actions: [{ label: t('Restore'), run: () => A.restoreStashes(res.trash) }] });
+      return res;
+    });
+  };
+  A.stashClear = function () {
+    const top = last[0];
+    if (!top) return Promise.resolve(null);
+    return A.run({ id: 'stash', title: t('Clear'), method: 'stash.clear', params: { expect: top.id },
+      refused: (reason) => (reason === 'no_stashes' ? (A.stashList(), true) : stashMoved(reason)) }).then((res) => {
+      if (!res) return null;
+      A.stashList();
+      Git.notify({ kind: 'info', title: t('All stashes were removed'), text: t('The stashes are kept for 14 days: Restore puts them back.'),
+        actions: [{ label: t('Restore'), run: () => A.restoreStashes(res.trash) }] });
+      return res;
+    });
+  };
+  A.stashBranchLabel = shownBranch;
+})();
+;
 /* ==== git/workbench.js ==== */
 /* The page around the views (docs/ARCHITECTURE.md §6.3). Replaces the prototype's frame.js.
    Workbench: thin top bar (repository switcher, branch widget, running job, Update Project / Commit / Push, settings)
@@ -7383,6 +7569,7 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
   const state = { right: true, rightView: 'commit', git: true, tabs: [], active: 'log', editor: [], current: null, ready: false };
   let root, top, main, center, editor, edTabs, edBody, edNote, dock, tabStrip, dockBody, right, rightBody, stripe, dockSplit, rightSplit;
   let filesBody = null, filesOff = null, rightTitle = null;   // the Files tool window (filetree.js) shares the right column
+  let stashBody = null, commitHead = null;                   // the Stash tab beside Commit (stash-view.js)
 
   // ---------------------------------------------------------------- skin and language
   /** A skin name as stored or asked for (?skin=): the host's aliases first (Git.host.skinAliases, an old stored
@@ -7544,6 +7731,12 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
       { label: t('New Branch…'), shortcut: '⌥⌘N', action: () => A.newBranch() },
       { label: t('New Tag…'), action: () => A.newTag(Git.headId()) });
     if (A.tag) items[items.length - 1].action = () => A.tag();   // Git ▸ New Tag… is IntelliJ's "Tag" dialog (Git.Tag, §21.3)
+    // Git ▸ Uncommitted Changes ▸ Stash Changes… / Unstash Changes… (Git.MainMenu.LocalChanges)
+    if (A.stashChanges) {
+      items.push('-', { label: t('Uncommitted Changes'), children: [
+        { label: t('Stash Changes…'), disabled: !!op || !Git.headId(), action: () => A.stashChanges() },
+        { label: t('Unstash Changes…'), disabled: !Git.headId(), action: () => A.unstashChanges() }] });
+    }
     Git.menu(anchor, items);
   }
   const consoleTab = () => ({ id: 'console', title: () => t('Console'), closable: true, mount: (el) => Git.views.console && Git.views.console.mount(el) });
@@ -7648,17 +7841,20 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     if (typeof filesOff === 'function') filesOff();
     filesOff = null;
     filesBody = h('div#g-files.g-col', { hidden: true });
+    stashBody = h('div#g-stash.g-col', { hidden: true });
     rightTitle = h('span.wb-rtitle', t('Commit'));
+    commitHead = h('span.wb-rhead-tabs', { hidden: true });   // the Commit | Stash tabs in place of the title (stash-view.js)
     // the tool window header's ⋮ Options (the Commit view's; hidden for Files) and — Hide (A §3.3)
     const rightOptions = Git.toolBtn({ icon: 'general/moreVertical', title: t('Options'), id: 'wb-right-options', onClick: (e) => { if (Git.views.commit && Git.views.commit.optionsMenu) Git.views.commit.optionsMenu(e.currentTarget); } });
     const rightHide = Git.toolBtn({ icon: 'general/hide', title: t('Hide') + '  ⇧Esc', id: 'wb-right-hide', onClick: () => F.showRight('none') });
-    right = h('div.wb-right', h('div.wb-rhead', rightTitle, h('span.gc-head-tools', rightOptions, rightHide)), rightBody, filesBody);
+    right = h('div.wb-right', h('div.wb-rhead', rightTitle, commitHead, h('span.gc-head-tools', rightOptions, rightHide)), rightBody, stashBody, filesBody);
     stripe = h('div#g-stripe.wb-stripe', { role: 'toolbar', 'aria-label': t('Commit view') },
       Git.views.files ? stripeBtn('toolwindowProject', t('Files') + '  ⌘1', 'g-stripe-files', () => F.showRight('files', 'toggle')) : null,
       stripeBtn('toolwindowCommit', t('Commit') + '  ⌘0', 'g-stripe-commit', () => F.showRight('commit', 'toggle')),
       h('span.g-spacer'),
       stripeBtn('toolwindowVcs', t('Git') + '  ⌘9', 'g-stripe-git', () => F.toggleGit()));
     if (Git.views.commit) Git.views.commit.mount(rightBody);
+    if (Git.stashTab) Git.stashTab.attach({ head: commitHead, title: rightTitle, commit: rightBody, stash: stashBody });
   }
   function applyLayout() {
     if (W.mode !== 'workbench' || !root) return;
@@ -7670,10 +7866,12 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     center.classList.toggle('dock-fills', !hasTabs);
     right.hidden = rightSplit.hidden = !state.right;
     const files = state.right && state.rightView === 'files' && !!Git.views.files;
-    rightBody.hidden = files;
     filesBody.hidden = !files;
     rightTitle.textContent = files ? t('Files') : t('Commit');
     rightTitle.lang = files ? Git.lang : 'en';                  // "Commit" is a git term: no Turkish dotted İ in capitals
+    // the Commit view's header shows the Commit | Stash tabs in place of the title while there are stashes (stash-view.js)
+    if (Git.stashTab) Git.stashTab.hostHides(files);
+    else { rightBody.hidden = files; stashBody.hidden = true; }
     const opts = document.getElementById('wb-right-options');
     if (opts) opts.hidden = files;
     if (files && !filesOff) filesOff = Git.views.files.mount(filesBody) || true;
@@ -7721,9 +7919,14 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     if (chip && view !== 'commit' && view !== 'files' && view !== 'tab') root.insertBefore(h('div.wb-rhead.wb-rhead-chip', chip, wtChip()), root.firstChild);
     if (view === 'commit') {
       const widget = h('div#g-widget.wb-widget');
-      root.insertBefore(h('div.wb-rhead', h('span.wb-rtitle', { lang: 'en' }, t('Commit')), chip, wtChip(), widget), root.firstChild);
+      const title = h('span.wb-rtitle', { lang: 'en' }, t('Commit'));
+      const head = h('span.wb-rhead-tabs', { hidden: true });   // the Commit | Stash tabs in place of the title (stash-view.js)
+      const stash = h('div.wb-single-body.g-col', { hidden: true });
+      root.appendChild(stash);
+      root.insertBefore(h('div.wb-rhead', title, head, chip, wtChip(), widget), root.firstChild);
       if (Git.branchWidget) Git.branchWidget.mount(widget);   // root is connected already
       if (Git.views.commit) Git.views.commit.mount(body);
+      if (Git.stashTab) Git.stashTab.attach({ head, title, commit: body, stash });
     } else if (view === 'log') { if (Git.views.log) Git.views.log.mount(body); }
     else if (view === 'console') { if (Git.views.console) Git.views.console.mount(body); }
     else if (view === 'branches') { if (Git.views.branches) Git.views.branches.mount(body); }
@@ -13075,6 +13278,468 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
   };
 })();
 ;
+/* ==== git/stash-dialogs.js ==== */
+/* The stash dialogs (docs/spec-stash.md §2–3): Stash (GitStashDialog), Unstash Changes in <root> (GitUnstashAsDialog,
+   the Stash tab's Unstash…), Unstash Changes (GitUnstashDialog, Git ▸ Unstash Changes…), Paths Affected by (its View),
+   and the Drop / Clear questions (GitStashOperations). Labels are IntelliJ's (GitBundle keys in the spec).
+     Git.dialogs.stash() · .unstashAs(stash) · .unstash() · .stashDrop(stash) · .stashClear() · .stashPaths(stash) */
+(function () {
+  'use strict';
+  const Git = window.Git;
+  const h = Git.h, t = (...a) => Git.t(...a);
+  const R = Git.repo, A = Git.actions;
+  const D = (Git.dialogs = Git.dialogs || {});
+
+  Git.addTR({
+    'Git Root:': 'Git kökü:', 'Current Branch:': 'Geçerli dal:', 'Current branch:': 'Geçerli dal:', 'Message:': 'Mesaj:',
+    'Keep index': 'Keep index', 'Include untracked': 'Takip edilmeyenleri de al', 'Create Stash': 'Stash oluştur',
+    'If this checkbox is selected, all changes already added to the index are left intact': 'İşaretliyse index\'e eklenmiş değişikliklere dokunulmaz',
+    'If this checkbox is selected, all untracked files are also stashed': 'İşaretliyse takip edilmeyen dosyalar da stash\'lenir',
+    'Enter stash message here': 'Stash mesajını buraya yaz',
+    'Unstash Changes in {0}': '{0} içinde stash\'ten geri al', 'Unstash Changes': 'Stash\'ten geri al', 'As new branch:': 'Yeni dal olarak:',
+    'Pop stash': 'Pop stash', 'Reinstate index': 'Reinstate index', 'Apply Stash': 'Stash\'i uygula', 'Pop Stash': 'Pop stash', 'Branch': 'Dal',
+    'If selected the stash is dropped after it is applied': 'İşaretliyse stash uygulandıktan sonra silinir',
+    'Attempt to reinstate index as well as working tree changes': 'Çalışma kopyasındaki değişikliklerle birlikte index\'i de geri koymayı dene',
+    'If non-empty name is entered, the stash is checked out as a new branch': 'Bir ad yazılırsa stash yeni bir dal olarak checkout yapılır',
+    'Stashes:': 'Stash\'ler:', 'Drop': 'Drop', 'View selected stash': 'Seçili stash\'i göster',
+    'Delete selected stash': 'Seçili stash\'i sil', 'Delete all stashes in the repository': 'Depodaki bütün stash\'leri sil',
+    'Paths Affected by {0}': '{0} tarafından değişen yollar', 'Remove Stash {0}?': '{0} silinsin mi?', 'Do you want to remove {0}?': '{0} silinsin mi?',
+    'Remove All Stashes?': 'Bütün stash\'ler silinsin mi?', 'Remove all stashes?': 'Bütün stash\'ler silinsin mi?', 'Yes': 'Evet', 'No': 'Hayır',
+    'Branch name {0} already exists': '{0} adında bir dal zaten var', 'Index on {0}': '{0} üzerindeki index', 'Untracked files on {0}': '{0} üzerindeki takip edilmeyen dosyalar',
+  });
+
+  const form = (rows) => h('div.gb-form.gs-form', rows.map(([label, field]) => [label ? h('label.g-label', label) : h('span'), field]));
+  const plain = (text, cls) => h('span.gs-value' + (cls || ''), text);
+  /** Below 1: a stash row of the Unstash Changes list (StashInfo.text: the ref bold monospace, the branch italic). */
+  function stashLine(s) {
+    return h('span.gs-line', h('b.gs-ref', A.stashRef(s)), ': ', s.branch ? [h('i', s.branch), ': '] : null, s.message || s.subject);
+  }
+  /** A name typed for "As new branch": null when it can be used, else IntelliJ's text. */
+  function branchProblem(name) {
+    if (!name) return null;
+    if (Git.isLocal && Git.isLocal(name)) return t('Branch name {0} already exists', name);
+    if (/^-|\.\.|[\s~^:?*[\\]|@\{|\/$|\.lock$|^\.|\/\./.test(name)) return t('This is not a valid branch or tag name');
+    return null;
+  }
+
+  // ---------------------------------------------------------------- Stash (GitStashDialog)
+  D.stash = function () {
+    const st = { keepIndex: false, includeUntracked: false };
+    const msg = Git.field({ id: 'gs-message', multiline: true, mono: true, rows: 3, label: t('Message:') });
+    msg.classList.add('gs-message');
+    msg.title = t('Enter stash message here');
+    const keep = Git.checkbox({ id: 'gs-keep-index', label: t('Keep index'), title: t('If this checkbox is selected, all changes already added to the index are left intact'), onChange: (v) => { st.keepIndex = v; } });
+    const untracked = Git.checkbox({ id: 'gs-include-untracked', label: t('Include untracked'), title: t('If this checkbox is selected, all untracked files are also stashed'), onChange: (v) => { st.includeUntracked = v; } });
+    let busy = false;
+    const dlg = Git.dialog({
+      title: t('Stash'), width: 480, className: 'gs-dialog gs-stash-dialog',
+      content: h('div.gb-stack', form([[t('Git Root:'), plain(R.root || '')], [t('Current Branch:'), plain(A.current())]]),
+        h('label.g-label.gs-msg-label', { for: 'gs-message' }, t('Message:')), msg, h('div.gb-options', keep, untracked)),
+      buttons: [{ label: t('Cancel') }, { label: t('Create Stash'), primary: true, id: 'create', keepOpen: true, onClick: () => {
+        if (busy) return false;
+        busy = true;
+        dlg.primary.disabled = true;
+        A.stashMessage(msg.input.value, st).then(() => dlg.close(), () => dlg.close());
+        return false;
+      } }],
+    });
+    // Enter in the message is a new line; ⌘⏎ creates the stash
+    msg.input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); dlg.primary.click(); } });
+    return dlg;
+  };
+
+  // ---------------------------------------------------------------- Unstash Changes in <root> (GitUnstashAsDialog)
+  D.unstashAs = function (s) {
+    const st = { pop: false, index: false };
+    const line = h('div.gb-line');
+    const name = Git.field({ id: 'gs-branch', label: t('As new branch:'), onInput: () => update() });
+    name.title = t('If non-empty name is entered, the stash is checked out as a new branch');
+    const pop = Git.checkbox({ id: 'gs-as-pop', label: t('Pop stash'), title: t('If selected the stash is dropped after it is applied'), onChange: (v) => { st.pop = v; update(); } });
+    const index = Git.checkbox({ id: 'gs-as-index', label: t('Reinstate index'), title: t('Attempt to reinstate index as well as working tree changes'), onChange: (v) => { st.index = v; } });
+    const dlg = Git.dialog({
+      title: t('Unstash Changes in {0}', R.name), width: 440, className: 'gs-dialog gs-unstash-as',
+      content: h('div.gb-stack', form([[t('Current branch:'), plain(A.current())], [t('As new branch:'), name]]), h('div.gb-stack.gs-checks', pop, index), line),
+      buttons: [{ label: t('Cancel') }, { label: t('Apply Stash'), primary: true, id: 'ok', onClick: () => {
+        const branch = name.input.value.trim();
+        if (branchProblem(branch)) return false;
+        if (branch) A.stashPop(s, { branch });
+        else if (st.pop) A.stashPop(s, { index: st.index });
+        else A.stashApply(s, { index: st.index });
+        return true;
+      } }],
+    });
+    // GitUnstashAsDialog.updateEnabled / updateOkButtonText: a branch name disables both boxes; the button names the action
+    function update() {
+      const branch = name.input.value.trim();
+      [pop, index].forEach((c) => { c.classList.toggle('disabled', !!branch); c.querySelector('input').disabled = !!branch; });
+      dlg.primary.textContent = branch ? t('Branch') : st.pop ? t('Pop Stash') : t('Apply Stash');
+      const p = branchProblem(branch);
+      Git.clear(line).appendChild(h('span.gb-problem', p || ''));
+      name.classList.toggle('gb-invalid', !!p);
+      dlg.primary.disabled = !!p;
+    }
+    update();
+    return dlg;
+  };
+
+  // ---------------------------------------------------------------- Unstash Changes (GitUnstashDialog)
+  D.unstash = function () {
+    const st = { pop: false, index: false, sel: 0, list: A.stashes() };
+    const listEl = h('div.gs-list', { role: 'listbox', tabIndex: 0, 'aria-label': t('Stashes:') });
+    const view = Git.btn(t('View'), { title: t('View selected stash'), onClick: () => { const s = cur(); if (s) D.stashPaths(s); } });
+    const drop = Git.btn(t('Drop'), { title: t('Delete selected stash'), onClick: () => { const s = cur(); if (s) D.stashDrop(s, reload); } });
+    const clear = Git.btn(t('Clear'), { title: t('Delete all stashes in the repository'), onClick: () => D.stashClear(reload) });
+    const line = h('div.gb-line');
+    const name = Git.field({ id: 'gs-unstash-branch', label: t('As new branch:'), onInput: () => update() });
+    name.title = t('If non-empty name is entered, the stash is checked out as a new branch');
+    const pop = Git.checkbox({ id: 'gs-unstash-pop', label: t('Pop stash'), title: t('If selected the stash is dropped after it is applied'), onChange: (v) => { st.pop = v; update(); } });
+    const index = Git.checkbox({ id: 'gs-unstash-index', label: t('Reinstate index'), title: t('Attempt to reinstate index as well as working tree changes'), onChange: (v) => { st.index = v; } });
+    const cur = () => st.list[st.sel] || null;
+    const dlg = Git.dialog({
+      title: t('Unstash Changes'), width: 560, className: 'gs-dialog gs-unstash',
+      content: h('div.gb-stack', form([[t('Git Root:'), plain(R.root || '')], [t('Current Branch:'), plain(A.current())]]),
+        h('div.gs-stashes', h('label.g-label', t('Stashes:')), listEl, h('div.gs-side', view, drop, clear)),
+        form([[t('As new branch:'), name]]), h('div.gb-options', pop, index), line),
+      buttons: [{ label: t('Cancel') }, { label: t('Apply Stash'), primary: true, id: 'ok', onClick: () => {
+        const s = cur(), branch = name.input.value.trim();
+        if (!s || branchProblem(branch)) return false;
+        if (branch) A.stashPop(s, { branch });
+        else if (st.pop) A.stashPop(s, { index: st.index });
+        else A.stashApply(s, { index: st.index });
+        return true;
+      } }],
+    });
+    listEl.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); st.sel = Math.max(0, Math.min(st.list.length - 1, st.sel + (e.key === 'ArrowDown' ? 1 : -1))); draw(); }
+    });
+    function draw() {
+      Git.clear(listEl);
+      st.list.forEach((s, i) => listEl.appendChild(h('div.gs-list-row', { role: 'option', class: i === st.sel ? 'sel' : '', 'aria-selected': String(i === st.sel),
+        onclick: () => { st.sel = i; draw(); }, ondblclick: () => { st.sel = i; D.stashPaths(s); } }, stashLine(s))));
+      update();
+    }
+    // GitUnstashDialog.updateDialogState
+    function update() {
+      const branch = name.input.value.trim();
+      const p = branchProblem(branch);
+      if (branch) {
+        [pop, index].forEach((c) => { c.classList.add('disabled'); const i = c.querySelector('input'); i.disabled = true; i.checked = true; });
+        dlg.primary.textContent = t('Branch');
+      } else {
+        [pop, index].forEach((c) => { c.classList.remove('disabled'); const i = c.querySelector('input'); i.disabled = false; });
+        pop.querySelector('input').checked = st.pop;
+        index.querySelector('input').checked = st.index;
+        dlg.primary.textContent = st.pop ? t('Pop Stash') : t('Apply Stash');
+      }
+      const none = !st.list.length, unpicked = !cur();
+      view.disabled = drop.disabled = none || unpicked;
+      clear.disabled = none;
+      Git.clear(line).appendChild(h('span.gb-problem', p || ''));
+      name.classList.toggle('gb-invalid', !!p);
+      dlg.primary.disabled = none || unpicked || !!p;
+    }
+    function reload() { A.stashList().then((list) => { if (dlg.closed) return; st.list = list; st.sel = Math.min(st.sel, Math.max(0, list.length - 1)); draw(); }); }
+    draw();
+    reload();
+    return dlg;
+  };
+
+  // ---------------------------------------------------------------- Paths Affected by stash@{n} (GitStashOperations.viewStash)
+  D.stashPaths = function (s) {
+    const files = s.files || { changes: [], index: [], untracked: [] };
+    const rows = [];
+    const add = (list) => list.forEach((c) => rows.push(h('div.gs-path', { style: { color: Git.statusColor(c.status) } }, Git.fileIcon(c.path), h('span', c.path))));
+    add(files.changes || []);
+    if ((files.untracked || []).length) { rows.push(h('div.gs-path-group', t('Untracked files on {0}', s.branch || ''))); add(files.untracked); }
+    return Git.dialog({ title: t('Paths Affected by {0}', A.stashRef(s)), width: 520, className: 'gs-dialog gs-paths',
+      content: h('div.gs-paths-list', rows), buttons: [{ label: t('Close'), primary: true }] });
+  };
+
+  // ---------------------------------------------------------------- Drop / Clear (GitStashOperations, Yes / No)
+  D.stashDrop = function (s, after) {
+    return Git.confirm({ title: t('Remove Stash {0}?', A.stashRef(s)), text: t('Do you want to remove {0}?', A.stashRef(s)), detail: '"' + (s.message || s.subject) + '"',
+      yes: t('Yes'), no: t('No'), onYes: () => A.stashDrop(s).then(() => after && after()) });
+  };
+  // IntelliJ adds "This cannot be undone." — here a cleared stash is kept for 14 days and Restore brings it back
+  D.stashClear = function (after) {
+    return Git.confirm({ title: t('Remove All Stashes?'), text: t('Remove all stashes?'), yes: t('Yes'), no: t('No'),
+      onYes: () => A.stashClear().then(() => after && after()) });
+  };
+})();
+;
+/* ==== git/stash-view.js ==== */
+/* The Stash tab beside Commit (IntelliJ's GitStashContentProvider / SavedPatchesUi; docs/spec-stash.md §3): the list
+   of stashes on top, the selected stash's files below with their toolbar, and the Apply / Pop strip. Shown while the
+   repository has stashes (the tab hides with the last one, as IntelliJ's does, unless it is the tab being looked at).
+     Git.views.stash.mount(el)                       the tab's body
+     Git.stashTab.attach({ head, commit, stash })    the Commit view header's Commit | Stash tabs (workbench.js)
+     Git.stashTab.show(id?) · .apply() · .active()   select the Stash tab (and a stash) · redraw · 'commit' | 'stash' */
+(function () {
+  'use strict';
+  const Git = window.Git;
+  const h = Git.h, t = (...a) => Git.t(...a);
+  const R = Git.repo, A = Git.actions;
+  const prefs = () => Git.host.prefs;
+
+  Git.addTR({
+    'Pop': 'Pop', 'Unstash…': 'Unstash…', 'Show Diff with Local': 'Yerel sürümle karşılaştır', 'Compare with Local': 'Yerel sürümle karşılaştır',
+    'No stashes or shelves added.': 'Hiç stash ya da shelf eklenmedi.', 'Getting started with Stash and Shelf': 'Stash ve Shelf\'e başlarken',
+    'Select stash or shelf to view files': 'Dosyaları görmek için bir stash ya da shelf seç', 'Loading…': 'Yükleniyor…',
+    '{0} created on {1} at {2}': '{0}, {1} tarihinde {2} saatinde oluşturuldu',
+    'Apply — apply and keep the stash in the list.\nPop — apply and remove the stash from the list.':
+      'Apply: uygula ve stash\'i listede tut.\nPop: uygula ve stash\'i listeden kaldır.',
+    'Stashes are shared by all worktrees of this repository': 'Stash\'ler bu deponun bütün worktree\'lerinde ortaktır',
+    'Stashes': 'Stash\'ler',
+  });
+
+  const st = { sel: null, loading: false, loaded: false, group: String(prefs().get('stash.group', '1')) !== '0' };
+  let ui = null;
+  const list = () => A.stashes();
+  const current = () => list().find((s) => s.id === st.sel) || list()[0] || null;
+
+  /** DateFormatUtil.formatDateTime: the date in the language's short order and the time ("11.02.26, 15:52"). */
+  function dateTime(ms) {
+    const d = new Date(ms), p = (n) => String(n).padStart(2, '0');
+    const date = Git.dateOrder() === 'dmy' ? p(d.getDate()) + '.' + p(d.getMonth() + 1) + '.' + String(d.getFullYear()).slice(2)
+      : (d.getMonth() + 1) + '/' + d.getDate() + '/' + String(d.getFullYear()).slice(2);
+    return { date, time: p(d.getHours()) + ':' + p(d.getMinutes()) };
+  }
+  /** GitStashBranchComponent: the tag icon and the branch, in the current branch's colour when it is the current one. */
+  function branchLabel(s) {
+    if (!s.branch || !Git.logUI || !Git.logUI.tagIcon) return null;
+    const color = Git.logUI.refColor(s.branch === R.head.branch ? 'head' : 'local');
+    return h('span.gs-branch', { title: s.branch }, Git.logUI.tagIcon([color]), h('span.gs-branch-text', s.branch));
+  }
+
+  // ---------------------------------------------------------------- the list (top)
+  function listNodes() {
+    return list().map((s) => {
+      const dt = dateTime(s.time);
+      return { id: s.id, kind: 'stash', label: s.message || s.subject, dim: dt.date + ', ' + dt.time, right: branchLabel(s),
+        tooltip: t('{0} created on {1} at {2}', A.stashRef(s), dt.date, dt.time), data: { stash: s } };
+    });
+  }
+  function rowMenu(node, ev) {
+    const s = node.data.stash;
+    pick(s.id);
+    const first = firstFile(s);
+    Git.menu(ev, [
+      { label: t('Pop'), action: () => A.stashPop(s) },
+      { label: t('Apply'), action: () => A.stashApply(s) },
+      { label: t('Unstash…'), action: () => A.unstashAs(s) },
+      { label: t('Drop'), shortcut: '⌫', action: () => Git.dialogs.stashDrop(s) },
+      { label: t('Clear'), action: () => Git.dialogs.stashClear() },
+      '-',
+      { label: t('Show Diff'), shortcut: '⌘D', disabled: !first, action: () => openDiff(s, first) },
+      { label: t('Show Diff in a New Tab'), disabled: !first, action: () => openDiff(s, first, { newTab: true }) },
+      { label: t('Compare with Local'), disabled: !first, action: () => openDiff(s, first) },
+    ]);
+  }
+  function pick(id) {
+    if (st.sel === id) return;
+    st.sel = id;
+    if (ui) { ui.list.select([id], true); drawFiles(); }
+  }
+
+  // ---------------------------------------------------------------- the files (bottom)
+  const M = () => Git.changesModel;
+  const countText = (n) => (n === 1 ? t('1 file') : t('{0} files', n));
+  /** "Index on main" / "Untracked files on main": the parent commit's subject before ':' (GitStashProvider). */
+  const partLabel = (s, part) => t(part === 'index' ? 'Index on {0}' : 'Untracked files on {0}', s.branch || '');
+  function fileNode(s, part, c) {
+    return { id: part + ':' + c.path, kind: 'file', label: Git.fileName(c.path), get icon() { return Git.fileIcon(c.path); },
+      color: Git.statusColor(c.status), dim: st.group ? null : Git.dirName(c.path) || R.name, tooltip: c.oldPath ? c.oldPath + ' → ' + c.path : c.path,
+      data: { stash: s, part, change: c } };
+  }
+  function grouped(s, part, changes) {
+    if (!st.group || !changes.length) return changes.map((c) => fileNode(s, part, c));
+    const byPath = new Map(changes.map((c) => [c.path, c]));
+    const conv = (x) => (x.kind === 'file' ? fileNode(s, part, byPath.get(x.file.path)) : { id: part + ':d:' + x.path, kind: 'dir', label: x.name, icon: 'nodes/folder',
+      dim: countText(x.files.length), children: x.children.map(conv) });
+    return [{ id: part + ':d:', kind: 'dir', label: R.name, icon: 'nodes/module', dim: countText(changes.length), children: M().dirTree(changes.map((c) => ({ path: c.path, status: c.status }))).map(conv) }];
+  }
+  function fileNodes() {
+    const s = current();
+    if (!s || !s.files) return [];
+    const f = s.files;
+    const out = grouped(s, 'changes', f.changes || []);
+    ['index', 'untracked'].forEach((part) => {
+      const list = f[part] || [];
+      if (list.length) out.push({ id: part, kind: 'group', label: partLabel(s, part), open: false, dim: countText(list.length), children: grouped(s, part, list) });
+    });
+    return out;
+  }
+  const allFiles = (s, part) => ((s.files && s.files[part]) || []).map((c) => c.path);
+  function firstFile(s) {
+    const f = s.files || {};
+    for (const part of ['changes', 'untracked', 'index']) if ((f[part] || []).length) return { part, change: f[part][0] };
+    return null;
+  }
+  /** A stashed file's diff (GitStashChange): the local file on the left, the stash's version on the right ("Stash@{0}"). */
+  function openDiff(s, f, o) {
+    if (!f) return;
+    const partId = f.part === 'index' ? s.indexId : f.part === 'untracked' ? s.untrackedId : s.id;
+    Git.open('diff', Object.assign({ kind: 'stash', stash: s.id, ref: A.stashTitle(s), part: f.part, rev: partId, path: f.change.path,
+      status: f.change.status, oldPath: f.change.oldPath || null, files: allFiles(s, f.part), changes: (s.files && s.files[f.part]) || [] },
+    o && o.newTab ? { tabId: 'diff:stash#' + Date.now() } : null, o && o.preview ? { preview: true } : null));
+  }
+  function selectedFile() {
+    const n = ui && ui.files.selected()[0];
+    if (n && n.kind === 'file') return { part: n.data.part, change: n.data.change };
+    const s = current();
+    return s ? firstFile(s) : null;
+  }
+  function drawFiles() {
+    if (!ui) return;
+    const s = current();
+    ui.files.render();
+    ui.filesEmpty.textContent = !s ? t('Select stash or shelf to view files') : !s.files ? t('Loading…') : '';
+    ui.filesEmpty.hidden = !!(s && s.files && fileNodes().length);
+    const none = !list().length;
+    ui.bottom.hidden = none;
+    ui.split.hidden = none;
+    ui.apply.disabled = ui.pop.disabled = !s;
+  }
+
+  // ---------------------------------------------------------------- the view
+  function build(el) {
+    Git.clear(el);
+    el.classList.add('gs-root');
+    const listEl = h('div.gs-list-tree', { 'aria-label': t('Stashes') });
+    const help = h('button.g-link.gs-help-link', { type: 'button', onclick: () => Git.host.openExternal && Git.host.openExternal('https://www.jetbrains.com/help/idea/shelving-and-unshelving-changes.html') },
+      Git.icon('general/questionMark'), t('Getting started with Stash and Shelf'));
+    const empty = h('div.gs-empty', h('div', t('No stashes or shelves added.')), help);
+    const shared = h('div.gs-shared', t('Stashes are shared by all worktrees of this repository'));
+    const top = h('div.gs-top', listEl, empty, shared);
+    const tool = (icon, label, id, onClick) => Git.toolBtn({ icon, title: label, id, onClick });
+    const view = tool('general/show', t('View Options'), 'gs-view', (e) => Git.menu(e.currentTarget, [
+      { label: t('Group By'), children: [{ header: t('Group By'), label: t('Group By'), disabled: true },
+        { label: t('Directory'), checked: st.group, action: () => { st.group = !st.group; prefs().set('stash.group', st.group ? '1' : '0'); drawFiles(); } }] }]));
+    const bar = h('div.g-toolbar.gs-toolbar', { role: 'toolbar' },
+      tool('vcs/diff', t('Show Diff') + '  ⌘D', 'gs-diff', () => { const s = current(); if (s) openDiff(s, selectedFile()); }), view,
+      h('span.g-spacer'),
+      tool('general/expandAll', t('Expand All'), 'gs-expand', () => ui.files.expandAll()),
+      tool('general/collapseAll', t('Collapse All'), 'gs-collapse', () => ui.files.collapseAll()));
+    const filesEl = h('div.gs-files', { 'aria-label': t('Changes') });
+    const filesEmpty = h('div.gs-files-empty');
+    const apply = Git.btn(t('Apply'), { primary: true, id: 'gs-apply', onClick: () => { const s = current(); if (s) A.stashApply(s); } });
+    const pop = Git.btn(t('Pop'), { id: 'gs-pop', onClick: () => { const s = current(); if (s) A.stashPop(s); } });
+    const tip = h('span.gs-tip', { title: t('Apply — apply and keep the stash in the list.\nPop — apply and remove the stash from the list.') }, Git.icon('general/questionMark'));
+    const bottom = h('div.gs-bottom', bar, h('div.gs-files-wrap', filesEl, filesEmpty), h('div.gs-strip', apply, pop, tip));
+    const split = Git.splitter({ target: bottom, edge: 'top', min: 120, max: () => Math.max(160, (el.clientHeight || 600) - 90), key: 'stash-split' });
+    el.appendChild(top);
+    el.appendChild(split);
+    el.appendChild(bottom);
+    if (!bottom.style.height) bottom.style.height = '50%';
+    ui = { el, top, listEl, empty, shared, bottom, split, filesEmpty, apply, pop };
+    ui.list = Git.tree({ el: listEl, nodes: listNodes,
+      onSelect: (nodes) => { const n = nodes[0]; if (n && n.data && n.data.stash && st.sel !== n.id) { st.sel = n.id; drawFiles(); } },
+      onActivate: (node) => { const s = node.data.stash; openDiff(s, firstFile(s)); },   // double-click / Enter: the diff of its files
+      onContext: (node, ev) => rowMenu(node, ev),
+      onKey: (e, sel) => {
+        const s = sel[0] && sel[0].data && sel[0].data.stash;
+        if (!s) return;
+        if (e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); Git.dialogs.stashDrop(s); }
+        else if ((e.metaKey || e.ctrlKey) && e.code === 'KeyD') { e.preventDefault(); openDiff(s, firstFile(s)); }
+        else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); A.stashApply(s); }
+      } });
+    ui.files = Git.tree({ el: filesEl, nodes: fileNodes,
+      onActivate: (node) => { if (node.kind === 'file') openDiff(node.data.stash, { part: node.data.part, change: node.data.change }); else if (node.children) ui.files.toggle(node.id); },
+      onPick: (node) => { if (node.kind === 'file' && Git.centre) Git.centre.preview(() => openDiff(node.data.stash, { part: node.data.part, change: node.data.change }, { preview: true })); },
+      onContext: (node, ev) => {
+        if (node.kind !== 'file') return;
+        const f = { part: node.data.part, change: node.data.change };
+        Git.menu(ev, [{ label: t('Show Diff'), shortcut: '⌘D', action: () => openDiff(node.data.stash, f) },
+          { label: t('Compare with Local'), action: () => openDiff(node.data.stash, f) },
+          { label: t('Jump to Source'), shortcut: '⌘↓', disabled: f.change.status === 'D', action: () => A.jumpToSource(f.change.path) }]);
+      } });
+    redraw();
+  }
+  function redraw() {
+    if (!ui) return;
+    const l = list();
+    if (l.length && !l.some((s) => s.id === st.sel)) st.sel = l[0].id;
+    ui.list.render();
+    if (st.sel) ui.list.select([st.sel], true);
+    ui.empty.hidden = !!l.length || !st.loaded;
+    ui.listEl.hidden = !l.length;
+    const wts = Git.worktrees && Git.worktrees.list ? Git.worktrees.list() : null;
+    ui.shared.hidden = !l.length || !((wts && wts.length > 1) || R.linked);
+    drawFiles();
+  }
+
+  let unsubs = [];
+  let seen = null;
+  function load() {
+    st.loading = true;
+    return A.stashList().then(() => { st.loading = false; st.loaded = true; redraw(); if (Git.stashTab) Git.stashTab.apply(); });
+  }
+  Git.views = Git.views || {};
+  Git.views.stash = {
+    mount(el) {
+      unsubs.forEach((off) => off());
+      build(el);
+      load();
+      seen = (R.stashes || []).join(',');
+      unsubs = [
+        Git.on('change', () => { const now = (R.stashes || []).join(','); if (now !== seen) { seen = now; load(); } else redraw(); }),
+        Git.on('stashes', () => redraw()),
+      ];
+    },
+    select(id) { if (id) pick(id); },
+  };
+
+  // ---------------------------------------------------------------- the Commit | Stash tabs of the header
+  const T = (Git.stashTab = {});
+  let at = null;            // { head, commit, stash, mounted }
+  let active = prefs().get('commit.tab', 'commit') === 'stash' ? 'stash' : 'commit';
+  let sticky = false;       // the Stash tab stays while it is the one looked at, also after its last stash went
+  T.active = () => active;
+  const has = () => (R.stashes || []).length > 0;
+  /** `title`: the view's own title element ("Commit"), hidden while the tabs show in `head` (an empty span beside it). */
+  T.attach = function (o) {
+    at = { head: o.head, title: o.title || null, commit: o.commit, stash: o.stash, mounted: false };
+    T.apply();
+  };
+  T.tabsShown = () => !!at && (has() || (active === 'stash' && sticky));
+  function select(tab) {
+    active = tab;
+    sticky = tab === 'stash';
+    prefs().set('commit.tab', tab);
+    T.apply();
+  }
+  T.show = function (id) {
+    if (!at) return;
+    if (Git.frame && Git.frame.showRight && Git.frame.rightView && Git.frame.rightView() === 'none') Git.frame.showRight('commit');
+    select('stash');
+    if (id && Git.views.stash) { const go = () => Git.views.stash.select(id); go(); A.stashList().then(go); }
+  };
+  T.apply = function () {
+    if (!at || !at.head.isConnected && !at.commit.isConnected) return;
+    const shown = has() || (active === 'stash' && sticky);
+    if (!shown && active === 'stash') active = 'commit';
+    Git.clear(at.head);
+    at.head.hidden = !shown || !!at.hiddenByHost;
+    if (at.title && !at.hiddenByHost) at.title.hidden = shown;
+    if (shown) {
+      const tab = (id, label) => h('div.g-tab', { class: active === id ? 'on' : '', role: 'tab', 'aria-selected': String(active === id), tabIndex: 0, dataset: { tab: id },
+        onclick: () => select(id), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(id); } } }, h('span.g-tab-title', { lang: 'en' }, label));
+      at.head.appendChild(h('div.g-dock-tabs.gs-tabs', { role: 'tablist' }, tab('commit', t('Commit')), tab('stash', t('Stash'))));
+    }
+    if (at.hiddenByHost) return;
+    at.commit.hidden = active === 'stash';
+    at.stash.hidden = active !== 'stash';
+    if (active === 'stash' && !at.mounted && Git.views.stash) { at.mounted = true; Git.views.stash.mount(at.stash); }
+  };
+  /** The workbench hides both bodies while its right column shows Files. */
+  T.hostHides = function (v) {
+    if (!at) return;
+    at.hiddenByHost = !!v;
+    if (v) { at.commit.hidden = true; at.stash.hidden = true; at.head.hidden = true; if (at.title) at.title.hidden = false; } else T.apply();
+  };
+  Git.on('change', () => { if (at) T.apply(); });
+})();
+;
 /* ==== git/diffview-load.js ==== */
 /* What a diff tab shows, before it is drawn (diffview.js draws it). No DOM.
    Git.diffLoad
@@ -13140,10 +13805,12 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     Git.emit('diff-settings', name);
   };
 
-  L.tabId = (spec) => (spec.tabId ? spec.tabId : spec.kind === 'local' ? 'diff:local' : spec.kind === 'commit' ? 'diff:commit' : spec.kind === 'file' ? 'file:' + spec.path : spec.id || 'diff:texts');
+  L.tabId = (spec) => (spec.tabId ? spec.tabId : spec.kind === 'local' ? 'diff:local' : spec.kind === 'commit' ? 'diff:commit' : spec.kind === 'stash' ? 'diff:stash'
+    : spec.kind === 'file' ? 'file:' + spec.path : spec.id || 'diff:texts');
   L.titleOf = function (spec) {
     const name = Git.fileName(spec.path || '');
     if (spec.kind === 'local') return t('Commit: {0}', name);
+    if (spec.kind === 'stash') return spec.ref + ': ' + name;          // GB stash.editor.diff.preview.id.change.title "{0}: {1}"
     if (spec.kind === 'commit') return t('Repository Diff: {0}', name);
     if (spec.kind === 'file') return name;
     return spec.title || name || t('Diff');
@@ -13179,6 +13846,17 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
       return { title, same: p.same,
         left: l ? side(p.left, { rev: parent, label: Git.short(parent), path: l.path, locked: true }) : null,
         right: r ? side(p.right, { rev: d.id, label: Git.short(d.id), file: spec.path, path: ch.oldPath ? spec.path : null, locked: true }) : null };
+    }
+    if (spec.kind === 'stash') {
+      // IntelliJ's default ("With the local version of a file", GitStashChange.createDiffWithLocalRequestProducer):
+      // the local file on the left, the stash's version on the right titled "Stash@{n}"
+      const ch = (spec.changes || []).find((x) => x.path === spec.path) || { path: spec.path, status: spec.status || 'M' };
+      const l = { path: spec.path, worktree: true };
+      const r = ch.status === 'D' ? null : { path: spec.path, rev: spec.rev };
+      const p = await Git.content.pair(l, r);
+      return { title, same: p.same,
+        left: side(p.left, { label: t('Current version'), worktree: true, path: spec.path }),
+        right: r ? side(p.right, { rev: spec.rev, label: spec.ref, file: spec.path, locked: true }) : null };
     }
     if (spec.kind === 'file') {
       const c = await Git.content.file({ path: spec.path, worktree: true });
@@ -14614,6 +15292,10 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
       // Git ▸ New Tag… is IntelliJ's "Tag" dialog (Git.Tag); the Log's New Tag… on a commit is A.newTag(id)
       { label: t('New Tag…'), disabled: !head || !(A.tag || A.newTag), action: () => (A.tag ? A.tag() : A.newTag(head)) },
       { label: t('Reset HEAD…'), disabled: !head || !A.reset, action: () => A.reset(head) },
+      '-',
+      // Git ▸ Stash Changes… / Unstash Changes… (Git.MainMenu.LocalChanges: GitStash, GitUnstash)
+      { label: t('Stash Changes…'), disabled: !head || op || !A.stashChanges, action: () => A.stashChanges() },
+      { label: t('Unstash Changes…'), disabled: !head || !A.unstashChanges, action: () => A.unstashChanges() },
     ];
     return items;
   };
@@ -16017,7 +16699,8 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     'Checkout': 'Checkout', 'Merge': 'Merge', 'Rebase': 'Rebase', 'Update': 'Güncelle', 'Cherry-Pick': 'Cherry-Pick',
     'Worktree Conflict': 'Worktree çakışması',
     "Branch '{0}' is already checked out in a worktree at:": "'{0}' dalı şu worktree'de zaten checkout edilmiş:",
-    'Checkout Anyway': 'Yine de checkout yap',
+    'Checkout Anyway': 'Yine de checkout yap', 'Show Worktree': 'Worktree\'yi göster',
+    'Show Worktree shows that worktree\'s changes and Log here. Nothing is checked out.': 'Worktree\'yi göster, o worktree\'nin değişikliklerini ve Log\'unu burada gösterir. Hiçbir şey checkout edilmez.',
     "Local branch '{0}' has commits that do not exist in '{1}'. Rebase '{0}' onto '{1}', or drop local commits?":
       "'{0}' yerel dalında '{1}' içinde olmayan commit'ler var. '{0}' dalı '{1}' üzerine rebase edilsin mi, yoksa yerel commit'ler atılsın mı?",
     'Drop Local Commits': 'Yerel commit\'leri at', 'Rebase onto Remote': 'Uzak dalın üzerine rebase et', 'Checkout {0}': '{0} checkout',
@@ -16072,10 +16755,16 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
       content: [h('div.gb-problem-text', text), o.files && o.files.length ? fileList(o.files) : null], buttons });
   };
 
+  /** `onShow` (when the page can show another worktree in place, ui/git/worktrees.js): "Show Worktree" is the first
+      choice then. Who asks for a branch that lives in another worktree mostly wants to see its work, and that needs no
+      checkout (the owner, 16 Nov 2026: "I wanted to see that branch's changes and got this warning"). */
   D.worktreeConflict = function (o) {
+    const buttons = [{ label: t('Cancel'), id: 'gb-wt-cancel' }, { label: t('Checkout Anyway'), primary: !o.onShow, id: 'gb-wt-anyway', onClick: () => o.onAnyway() }];
+    if (o.onShow) buttons.push({ label: t('Show Worktree'), primary: true, id: 'gb-wt-show', onClick: () => o.onShow() });
     return Git.dialog({ title: t('Worktree Conflict'), width: 480, className: 'g-confirm',
-      content: h('div.g-confirm-text', t("Branch '{0}' is already checked out in a worktree at:", o.branch), h('div.g-confirm-detail.g-mono', o.path || '')),
-      buttons: [{ label: t('Cancel'), id: 'gb-wt-cancel' }, { label: t('Checkout Anyway'), primary: true, id: 'gb-wt-anyway', onClick: () => o.onAnyway() }] });
+      content: h('div.g-confirm-text', t("Branch '{0}' is already checked out in a worktree at:", o.branch), h('div.g-confirm-detail.g-mono', o.path || ''),
+        o.onShow ? h('div.g-confirm-detail.g-dim#gb-wt-hint', t('Show Worktree shows that worktree\'s changes and Log here. Nothing is checked out.')) : null),
+      buttons });
   };
 
   D.localBranchExists = function (o) {
