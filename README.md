@@ -87,4 +87,4 @@ It holds the plugin exactly as Orca loads it, published from a development tree 
 | `ui/` | the web UI, plain scripts without a build step; `ui/orca-bundle.js` and `ui/css/orca-bundle.css` are the same files joined, generated |
 | `hosts/orca/` | the worker and the panels that connect the two to Orca |
 
-Third-party files and their licenses: [NOTICE.md](NOTICE.md).
+License: MIT ([LICENSE](LICENSE)). Third-party files keep their own licenses: [NOTICE.md](NOTICE.md).
