@@ -10,8 +10,11 @@
   'use strict';
   // The product name a user reads under Orca and the prefix of the panels' localStorage keys (hosts/orca/README.md
   // "Identity"; the worker's are in product.mjs). Handed to the UI before it loads (ui/host/product.js lists the fields).
-  const PRODUCT = 'HayBrains Git';
+  const PRODUCT = 'Hay Git';
   const STORAGE_PREFIX = 'git-panel:';
+  // where a problem report goes: the new-issue page of the plugin's public repository (orca-plugin.json `repository`)
+  const ISSUES = 'https://github.com/omerfarukgzr/orca-git-plugin/issues/new';
+  // (ui/git/report.js fills that page from `title` and `body`: how the link is spelled and how long it may be is there)
   const pre = (window.Git = window.Git || {});
   pre.host = Object.assign(pre.host || {}, { product: PRODUCT, storagePrefix: STORAGE_PREFIX });
   const me = document.currentScript;
@@ -115,9 +118,31 @@
       'Orca has {1} workspaces called {0} and does not tell which one is focused. The one picked last time was opened.':
         'Orca\'da adı {0} olan {1} çalışma alanı var ve Orca hangisinin açık olduğunu söylemiyor. Geçen sefer seçilen açıldı.',
       'Change…': 'Değiştir…',
+      'Orca asks first: choose Open.': 'Önce Orca sorar: Open\'ı seç.',
+      'In Orca, open Settings → Plugins, choose ⋯ → Refresh catalogs, then press Update on {0}.':
+        'Orca\'da Settings → Plugins sayfasını aç, ⋯ → Refresh catalogs\'u seç, sonra {0} satırında Update\'e bas.',
     });
     const t = (...a) => Git.t(...a);
-    try { await Git.orca.start(view); } catch (e) { say(t('Cannot reach the {0} worker of Orca.', PRODUCT)); return; }
+    let pictures = false;
+    try {
+      const hello = await Git.orca.start(view);
+      // the plugin's version, for the Options menu's last row (ui/git/options.js)
+      if (hello && hello.about && typeof hello.about.version === 'string') Git.host.version = hello.about.version.slice(0, 40);
+      // the worker can put a report's screenshot on the clipboard (hosts/orca/picture.mjs: macOS)
+      pictures = !!(hello && hello.about && hello.about.pictures === true);
+    } catch (e) { say(t('Cannot reach the {0} worker of Orca.', PRODUCT)); return; }
+
+    // Updates (ui/git/update.js; the worker reads the channel, hosts/orca/update.mjs): a newer release is a dot on the
+    // Options button and a row in its menu; below the channel's minimum the dialog also opens by itself, once a day.
+    // Nothing is ever locked. A worker that does not answer (or could not read the channel) says nothing, and nothing
+    // is shown. "Update Now" asks the worker to run Orca's own `plugin update`; the sentence says the way by hand.
+    const readUpdate = () => Git.orca.request('update.state', {}, { retries: 0, timeoutMs: 4000 }).then((r) => r || null, () => null);
+    Git.host.update = {
+      steps: () => t('In Orca, open Settings → Plugins, choose ⋯ → Refresh catalogs, then press Update on {0}.', PRODUCT),
+      check: readUpdate,
+      run: () => Git.orca.request('update.run', {}, { retries: 0, timeoutMs: 120000 }),
+    };
+    const updating = readUpdate();     // asked now, looked at before the UI starts
 
     // The panel asks Orca itself which workspace it belongs to: in the running app the context a panel reads carries
     // the workspace's id (the one a worker reads on its own does not), so the worker can look the folder up exactly.
@@ -131,6 +156,39 @@
       } catch (e) { /* no host API in this frame */ }
       return Promise.resolve({});
     };
+    // Report a Problem (ui/git/report.js): the worker's facts about the focus (hosts/orca/diagnostics.mjs: kinds and
+    // counts, never a path or a name) with this frame's own API level, and the public repository's new-issue page,
+    // which Orca opens in the browser on the person's click (it asks once before it opens that site for a plugin).
+    // Without `orca.shell` (a browser client) there is no page to open: the dialog then only copies.
+    const apiOf = () => { try { const a = window.orca && window.orca.api; return a && typeof a.major === 'number' ? a.major + '.' + a.minor : 'unknown'; } catch (e) { return 'unknown'; } };
+    const canOpen = () => { try { return !!(window.orca && window.orca.shell && typeof window.orca.shell.openExternal === 'function'); } catch (e) { return false; } };
+    Git.host.report = Object.assign({
+      open: true,                                    // issues of the public repository can be read by anyone
+      // Orca asks the person before a plugin opens a site for the first time (a dialog with the link's beginning): say so
+      asks: () => t('Orca asks first: choose Open.'),
+      diagnostics: () => frameContext().then((input) => Git.orca.request('diagnostics', input, { retries: 1, timeoutMs: 15000 }))
+        .then((r) => ({ environment: r && Array.isArray(r.environment) ? r.environment : [], lines: r && Array.isArray(r.lines) ? r.lines : [], detail: (r && r.detail) || null }),
+          () => ({ environment: [], lines: ['worker: no answer'], detail: null }))
+        .then((d) => ({ environment: d.environment, detail: d.detail, lines: d.lines.concat('panel: host api ' + apiOf() + ', can open links ' + (canOpen() ? 'yes' : 'no')) })),
+      // The link carries the whole report as the issue's text (the owner, 17 Nov 2026: an issue must bring the plugin's
+      // detailed log with it, readable): the person's words, the Environment, the diagnostics and as much of the
+      // detailed log as the link has room for (ui/git/report.js `github`). No issue form: a page that is filled in
+      // from `title` and `body` works in every repository, and was seen to.
+    }, canOpen() ? { github: ISSUES } : {},
+    // A screenshot given to the dialog: a link cannot carry it and a frame may not write the clipboard, so it goes to
+    // the worker in pieces (a host call takes 64 KiB) and the worker puts it on the clipboard when the page opens.
+    canOpen() && pictures ? { picture: {
+      async set(base64) {
+        const id = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8), PIECE = 36 * 1024;
+        for (let at = 0, seq = 0; at < base64.length || seq === 0; at += PIECE, seq++) {
+          const r = await Git.orca.request('report.picture.put', { id, seq, last: at + PIECE >= base64.length, data: base64.slice(at, at + PIECE) }, { retries: 2, timeoutMs: 20000 });
+          if (!r || r.ok !== true) return false;
+        }
+        return true;
+      },
+      clear: () => Git.orca.request('report.picture.clear', {}, { retries: 1, timeoutMs: 8000 }).then(() => true, () => false),
+      copy: () => Git.orca.request('report.picture.copy', {}, { retries: 0, timeoutMs: 10000 }).then((r) => !!(r && r.ok === true), () => false),
+    } } : {});
     const resolve = () => frameContext().then((input) => Git.orca.request('workspace', input))
       .then((w) => w || { status: 'error', code: 'empty' }, (e) => ({ status: 'error', code: (e && e.code) || 'action_failed' }));
     const keyOf = (w) => w.status + '|' + (w.path || w.name || '') + '|' + (w.workspaceId || '');
@@ -242,6 +300,10 @@
     if (view === 'tab') await load(here + 'editor.js');
     await load('git/boot.js');
     if (ws.status === 'local') tell(ws);
+    // what the update channel says (asked above): the mark on the Options button, and below the minimum the dialog,
+    // once a day. The page is up either way; a slow or silent worker holds nothing back.
+    const updated = () => { try { if (Git.update) Git.update.remind(); } catch (e) { /* the dialog is a courtesy */ } };
+    if (Git.update) updating.then((u) => { Git.update.apply(u); updated(); });
 
     // follow the focused workspace
     let key = keyOf(ws), timer = null;
@@ -264,7 +326,8 @@
       timer = setTimeout(async () => { apply(await resolve()); }, 120);
     };
     try { if (window.orca && window.orca.on) window.orca.on('workspace.changed', check); } catch (e) { /* no workspace events */ }
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+    // a page that comes back also asks again what the update channel says (the worker reads it now and then)
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) { check(); if (Git.update) Git.update.refresh().then(updated); } });
     Git.orca.check = check;
   }
 })();

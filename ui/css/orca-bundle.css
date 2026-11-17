@@ -482,9 +482,66 @@ img.ficon { display: block; object-fit: contain; pointer-events: none; -webkit-u
 .g-dialog-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
 /* the buttons wrap to a second line (kept to the right) where they do not fit, as in a 385 px side panel with three of them */
 .g-dialog-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; padding: 12px 16px; flex: none; border-top: 1px solid var(--g-line); }
-.g-dialog-left { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; }
+/* The left part (a help button, a "Don't show again" box) is as wide as what it holds and takes the room that is
+   left. With no width of its own (flex-basis 0) it gave all of it to the buttons in a narrow page and its content ran
+   out under them; now a footer that does not fit breaks into rows instead. Empty, it takes no row. */
+.g-dialog-left { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.g-dialog-left:empty { display: none; }
 .g-confirm-text { line-height: 1.45; }
 .g-confirm-detail { margin-top: 6px; color: var(--g-dim); overflow-wrap: anywhere; }   /* a long path breaks instead of scrolling the dialog sideways */
+/* Report a Problem (report.js): what the report carries, shown whole and selectable, the person's own words under it */
+.g-report { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.g-report-note { color: var(--g-dim); line-height: 1.45; }
+.g-report-data {
+  margin: 0; padding: 8px 10px; max-height: 132px; overflow: auto; border: 1px solid var(--g-line); border-radius: var(--g-radius);
+  font-family: var(--g-mono); font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;
+  user-select: text; -webkit-user-select: text; outline: none;
+}
+.g-report-data:focus-visible { border-color: var(--g-focus); }
+.g-report-hint { line-height: 1.35; }
+.g-report-refused { color: var(--g-error); line-height: 1.35; }
+/* update.js: the dialog of a newer release, and the dot on the Options button while one is out (in the warning color
+   when the running one is below the minimum). Nothing of it covers or locks the page. */
+.g-update { display: flex; flex-direction: column; gap: 10px; }
+.g-update-text { line-height: 1.5; overflow-wrap: anywhere; }
+.g-update-note { padding: 8px 10px; border-radius: var(--g-radius); background: var(--g-accent-soft); line-height: 1.5; overflow-wrap: anywhere; }
+.g-update-steps { color: var(--g-dim); line-height: 1.5; overflow-wrap: anywhere; }
+.g-update-status { color: var(--g-dim); line-height: 1.5; overflow-wrap: anywhere; }
+.g-update-status:empty { display: none; }
+.g-update[data-state="required"] .g-update-note { background: color-mix(in srgb, var(--g-warn) 16%, transparent); }
+.wb-options.has-update { position: relative; }
+.wb-options.has-update::after { content: ''; position: absolute; top: 3px; right: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--g-accent); pointer-events: none; }
+.wb-options.has-update.update-required::after { background: var(--g-warn); }
+/* the screenshot area (report-picture.js): a dashed box to drop a picture on or to click; with a picture, its thumbnail */
+/* the dashes are plain to see before anything is dragged: they are what says "drop here" (the owner, 17 Nov 2026) */
+.g-report-zone {
+  display: flex; align-items: center; gap: 12px; min-height: 76px; padding: 12px 14px; min-width: 0;
+  border: 2px dashed color-mix(in srgb, var(--g-text) 42%, transparent); border-radius: 10px; cursor: pointer; outline: none;
+  background: color-mix(in srgb, var(--g-text) 3%, transparent);
+  transition: border-color .12s, background-color .12s;
+}
+.g-report-zone:hover, .g-report-zone:focus-visible, .g-report-zone.over { border-color: var(--g-focus); background: color-mix(in srgb, var(--g-focus) 9%, transparent); }
+.g-report-zone.over { border-style: solid; }
+/* with pictures: each one listed above the box with its thumbnail, the box smaller ("add another"), a line under it */
+.g-report-pictures { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.g-report-list { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.g-report-list:empty { display: none; }
+.g-report-item { display: flex; align-items: center; gap: 10px; padding: 5px 8px; min-width: 0; border: 1px solid var(--g-line); border-radius: var(--g-radius); }
+.g-report-zone.more { min-height: 52px; padding-top: 8px; padding-bottom: 8px; }
+.g-report-pics-status { line-height: 1.35; overflow-wrap: anywhere; }
+.g-report-pics-status:empty { display: none; }
+.g-report-zone.bad { border-color: var(--g-error); }
+.g-report-zone-ic { flex: none; width: 32px; height: 32px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--g-hover); }
+.g-report-zone-words { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.g-report-zone-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.g-report-zone.bad .g-report-zone-title { color: var(--g-error); white-space: normal; }
+.g-report-zone-sub { color: var(--g-dim); line-height: 1.35; overflow-wrap: anywhere; }
+.g-report-thumb { flex: none; width: 72px; height: 48px; object-fit: cover; border-radius: 4px; border: 1px solid var(--g-line); background: var(--g-hover); }
+.g-report-zone-x { flex: none; width: 24px; height: 24px; border: 0; border-radius: var(--g-radius); background: transparent; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.g-report-zone-x:hover { background: var(--g-hover); }
+.g-report-zone-x:focus-visible { outline: 2px solid var(--g-focus); outline-offset: -2px; }
+@media (prefers-reduced-motion: reduce) { .g-report-zone { transition: none; } }
+.g-report-dlg { max-width: calc(100vw - 16px); }
 .g-label { color: var(--g-dim); }
 .g-form-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .g-form-row > .g-label { flex: 0 0 auto; }
@@ -712,9 +769,15 @@ body { background: var(--g-panel); color: var(--g-text); overflow: hidden; }
 .wp-ask-row { min-height: 40px; padding: 0 12px; border: 1px solid var(--g-line); margin-bottom: 6px; }
 .wp-ask-row:hover, .wp-ask-row:focus-visible { background: var(--g-hover); border-color: var(--g-accent-line); outline: none; }
 .wp-other { align-self: flex-start; margin-top: 10px; border: 0; background: transparent; padding: 0; cursor: pointer; font: inherit; }
+/* the question page's links in one row (they wrap in a narrow panel); Report a problem… on an error page (report.js) */
+.wp-links { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; margin-top: 10px; }
+.wp-links > .wp-other { margin-top: 0; }
+.wp-box > .g-report-link { align-self: flex-start; margin: 2px 0 6px; }
 /* a single view of a host that puts several repositories behind one panel names the one it shows (Git.host.repoChip) */
 .wb-single .wb-repo { flex: 0 1 auto; min-width: 0; }
 .wb-rhead-chip { justify-content: flex-start; }
+/* the header's Options button (options.js) keeps the right end, whatever stands before it */
+.wb-rhead > .wb-options { margin-left: auto; flex: none; }
 .wp-name { font-weight: 600; flex: none; }
 
 /* ---- Worktrees (worktrees.js): the chip beside the repository chip, its list's rows, the strip while another shows */

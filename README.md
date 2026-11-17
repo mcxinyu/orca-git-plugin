@@ -1,6 +1,6 @@
-# HayBrains Git for Orca
+# Hay Git for Orca
 
-HayBrains Git is an IntelliJ IDEA-style Git tool window for [Orca](https://github.com/stablyai/orca): local changes and commit, the Log
+Hay Git is an IntelliJ IDEA-style Git tool window for [Orca](https://github.com/stablyai/orca): local changes and commit, the Log
 with its graph, branches, merge, rebase (interactive too) and conflict resolution, for the repository of the focused
 workspace.
 
@@ -40,8 +40,18 @@ Needs Orca 1.4.248 or newer and `git` on the `PATH`. Developed and tested on mac
   days and Restore puts it back; Smart Checkout's own stash is put back by its id, never another session's.
 - **Status bar**: the focused workspace's branch, its number of local changes and the commits to push and pull
   (`feature/x *5 ↑2 ↓1`), what runs (`Pushing… 42%`) and a merge, rebase or conflict in progress in the warning colour.
-  Click it (or run "HayBrains Git: Show Git Panel") to bring up the Git panel in the right sidebar.
-- English by default; Turkish can be chosen in each panel's View Options.
+  Click it (or run "Hay Git: Show Git Panel") to bring up the Git panel in the right sidebar.
+- **Report a Problem**: in the ⋮ menu at the top right of each panel. It shows what the report carries (versions, the
+  plugin's own log of its calls, errors and timings, and how Orca describes the focused workspace as kinds and
+  counts; no folder, project, branch or file name), takes your own
+  words under it, and opens this repository's new-issue page on GitHub filled in, or copies the text. On macOS it
+  also takes screenshots, up to six (drop them on the dialog, click to choose files, or paste one) and puts them on
+  your clipboard as one image to paste into that page. Nothing is sent until you submit it there.
+- **Updates**: when a newer version is out, the ⋮ button carries a dot and its menu a row "Update to …". When your
+  version has a serious problem that a newer one fixes, a dialog asks you to update, at most once a day. Nothing is
+  ever locked: "Later" closes it and the panels work as before.
+- English by default; Turkish can be chosen in the ⋮ menu at the top right of each panel, which also names the
+  installed version.
 - **Your editor font**: diffs, the file view with blame and the Console use the font family, size and line height of
   Orca's file editor (Settings, editor zoom included) and follow it when it changes (Orca 1.4.256 or newer; older
   versions keep the plugin's own font).
@@ -67,11 +77,19 @@ merge. This plugin asks first, and when told to go on it moves the file's conten
   When several workspaces share a name (every project's main worktree is called `main`) and Orca does not say which
   one is focused, the ids of their terminals are read to tell them apart; no terminal content is read.
 - `workspace:write`: only to open a file or a diff tab in Orca's editor area.
-- One status bar item and one command ("HayBrains Git: Show Git Panel"); with a status bar item, Orca keeps the
+- One status bar item and one command ("Hay Git: Show Git Panel"); with a status bar item, Orca keeps the
   plugin's worker running while the plugin is enabled. The click runs Orca's own command-line tool
   (`orca plugin open … --panel log`) to show the panel.
 
-No network access of its own: the only traffic is what `git` does with your remotes.
+Network: what `git` does with your remotes, and one request of the plugin's own. When it starts and every 6 hours it
+reads one small file from this repository
+(`https://raw.githubusercontent.com/omerfarukgzr/orca-git-plugin/updates/versions.json`) to learn the newest version
+and the oldest one that should still be used. That request carries nothing about you, your machine or your
+repositories: no identifier, no query, a fixed User-Agent. Without a network nothing changes. "Update Now"
+runs Orca's own `orca plugin update` for this plugin. "Report a Problem" opens a page
+in your browser when you click it (Orca asks once before a plugin opens a site); the plugin itself sends nothing. A
+screenshot you add to a report (macOS) is put on your clipboard with the system's `osascript` as that page opens, for
+you to paste there; it is kept as one file under `~/.config/git-panel/report/` for at most two minutes after that.
 
 ## Where it keeps things
 

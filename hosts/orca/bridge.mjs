@@ -68,7 +68,8 @@ export function splitBytes(text, max) {
   return out.length ? out : [''];
 }
 
-export function createBridge({ engine, limits, log = () => {} }) {
+/** `about`: plain facts a page may show, handed over with `hello` (the plugin's version: the Options menu names it). */
+export function createBridge({ engine, limits, log = () => {}, about = null }) {
   const L = { ...LIMITS, ...(limits || {}) };
   const instance = 'w' + rand();
   const clients = new Map();
@@ -92,7 +93,7 @@ export function createBridge({ engine, limits, log = () => {} }) {
     };
     clients.set(c.id, c);
     const reads = engine.methods ? engine.methods().filter((m) => !m.mutating).map((m) => m.name) : [];
-    return { instance, client: c.id, limits: { inputBudget: L.inputBudget }, reads };
+    return { instance, client: c.id, limits: { inputBudget: L.inputBudget }, reads, ...(about ? { about } : {}) };
   }
   const unknown = () => ({ instance, error: { code: 'unknown_client', message: 'this worker does not know the client (it was restarted or the client expired)' } });
   function find(input) {

@@ -1,6 +1,6 @@
 # Third-party notices
 
-HayBrains Git for Orca includes the following material from other projects. Each keeps its own license.
+Hay Git for Orca includes the following material from other projects. Each keeps its own license.
 
 | What | Where in this repository | From | License |
 |---|---|---|---|

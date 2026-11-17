@@ -1,6 +1,7 @@
 // Worktrees group: worktree.list — the repository's worktrees (`git worktree list --porcelain -z`) and, for every one
 // that is on disk, how many entries the Commit view would list there (changes, unversioned files and conflicts: the
 // snapshot's own reading, core/snapshot.js localLists, so a row's number is what the panel shows after picking it).
+// `counts: false` leaves every count out (`changes: null`) and runs no status at all.
 // Read only: background reads (no optional locks), nothing is written. A worktree whose count does not arrive within
 // COUNT_MS (slow disk, a broken worktree, git failing) gets `changes: null`; it never holds the list back.
 import fs from 'node:fs';
@@ -70,8 +71,10 @@ async function countChanges(ctx, dir, ms) {
 export default [
   {
     name: 'worktree.list', repo: true, mutating: false,
-    params: {},
-    async handler(ctx) {
+    // counts: false is the list alone (one `git worktree list`, no status anywhere): what a page reads in the
+    // background for the chip; the list's menu asks with counts.
+    params: { counts: { type: 'bool', default: true } },
+    async handler(ctx, p) {
       const out = await ctx.git(['worktree', 'list', '--porcelain', '-z']);
       const list = parseWorktreeList(out.stdout).filter((w) => !w.bare);
       const rows = list.map((w, i) => {
@@ -94,7 +97,7 @@ export default [
           changes: null,
         };
       });
-      await eachLimited(rows.filter((r) => r.exists), COUNT_CONCURRENCY, async (r) => { r.changes = await countChanges(ctx, r.path, COUNT_MS); });
+      if (p.counts) await eachLimited(rows.filter((r) => r.exists), COUNT_CONCURRENCY, async (r) => { r.changes = await countChanges(ctx, r.path, COUNT_MS); });
       rows.forEach((r) => { delete r.exists; });
       return { root: ctx.repo.root, worktrees: rows };
     },

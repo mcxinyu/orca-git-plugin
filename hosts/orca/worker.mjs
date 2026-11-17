@@ -3,11 +3,14 @@
 // enabled and keeps it running (`deactivate` when it stops). It owns one engine (core/) and answers the panels' requests:
 //   hello · send · poll · part · put · bye · relay   the transport (hosts/orca/bridge.mjs, ui/host/orca.js)
 //   workspace · workspace.choose · workspace.raw     the focused workspace as a local folder (workspace.mjs)
+//   diagnostics                                      what a problem report carries: kinds and counts (diagnostics.mjs)
+//   report.picture.put · .clear · .copy              a report's screenshot, on its way to the clipboard (picture.mjs)
+//   update.state · update.run                        is a newer release out, must it be taken; take it (update.mjs)
 //   openFile                                         a repository file in Orca's editor (editor.open)
 //   note                                             a panel's diagnostics line for the plugin log (panel.js)
 //   tab.open · tab.current                           a diff in Orca's center area (tab.mjs)
 //   centre.beat · centre.state                       whether a diff shows there now (tab.mjs, ui/git/centre.js)
-// The product is "HayBrains Git" here (product.mjs): the engine keeps its settings in ~/.config/git-panel (GIT_PANEL_HOME
+// The product is "Hay Git" here (product.mjs): the engine keeps its settings in ~/.config/git-panel (GIT_PANEL_HOME
 // overrides it, tests pass `opts.home`) and its files in <git dir>/git-panel/; its log on disk in <home>/log/.
 // The status bar item (statusbar.mjs) and its command `showGitPanel` (showpanel.mjs): Orca keeps a worker with status
 // bar items running while the plugin is enabled; the item follows `workspace.changed` (contributes.events).
@@ -17,11 +20,17 @@ import { createEngine } from '../../core/engine.js';
 import { createHome } from '../../core/home.js';
 import { createDiskLog, logDir } from '../../core/disklog.js';
 import { createBridge } from './bridge.mjs';
-import { focusedWorkspace, chooseWorkspace, contextKey, openFile } from './workspace.mjs';
+import { focusedWorkspace, chooseWorkspace, contextKey, openFile, terminalIds } from './workspace.mjs';
+import { describeFocus, idKind, resolutionText } from './diagnostics.mjs';
+import { createPicture } from './picture.mjs';
+import { createEnvironment } from './environment.mjs';
+import { createActivity, runtimeLine } from './activity.mjs';
+import { createJournal } from './journal.mjs';
 import { PRODUCT, orcaHome } from './product.mjs';
 import { createTabs } from './tab.mjs';
 import { createStatusItem } from './statusbar.mjs';
 import { createShowPanel, cliPath, pluginKey, COMMAND_ID } from './showpanel.mjs';
+import { createUpdate, createUpdater } from './update.mjs';
 
 let current = null;
 // A panel's context (it carries the workspace id) counts for the status bar until a focus change it did not see:
@@ -84,7 +93,10 @@ const pluginRoot = () => fileURLToPath(new URL('../../', import.meta.url)).repla
 
 /**
  * Starts the worker on `orca`; `opts` (tests): { home, limits, engine, status: { minIntervalMs }, show: { cli, key,
- * spawnFn, timeoutMs } }. Returns { engine, bridge, status, showPanel, stop() }.
+ * spawnFn, timeoutMs }, picture: { platform, run } (a test never touches the real clipboard), update: { fetch, url,
+ * everyMs, retryMs, version, cli, key, spawnFn, timeoutMs } }. Without `opts.update` the update channel is never read
+ * (no test goes to the network); `activate`, the way Orca starts the worker, turns it on.
+ * Returns { engine, bridge, status, showPanel, picture, update, stop() }.
  */
 export function start(orca, opts = {}) {
   if (current) current.stop();
@@ -93,9 +105,18 @@ export function start(orca, opts = {}) {
   // The log on disk, <home>/log/YYYY-MM-DD.jsonl (docs/ARCHITECTURE.md §3.7): the engine's git commands and calls,
   // the panels' errors (diag.report) and the worker's own lines below. It goes off quietly when it cannot write.
   const diskLog = createDiskLog({ dir: logDir(homeDir), host: 'orca', onDisable: (e) => orcaLog('log on disk is off: ' + ((e && e.message) || e)) });
-  const engine = opts.engine || createEngine({ home: homeDir, dataDir: PRODUCT.id, label: PRODUCT.name, log: diskLog });
+  // What the engine writes to the log also feeds a short memory of the last calls, git commands and errors, for a
+  // problem report (activity.mjs keeps names, durations and codes only).
+  const activity = createActivity();
+  const startedAt = Date.now();
+  const tapped = Object.assign(Object.create(diskLog), { write(entry) { activity.take(entry); return diskLog.write(entry); } });
+  const engine = opts.engine || createEngine({ home: homeDir, dataDir: PRODUCT.id, label: PRODUCT.name, log: tapped });
   const log = (m) => { orcaLog(m); diskLog.write({ kind: 'host', text: String(m).slice(0, 500) }); };
-  const bridge = createBridge({ engine, limits: opts.limits, log });
+  // a problem report's screenshot (picture.mjs): kept here, put on the clipboard when the tracker's page opens
+  const picture = createPicture({ home: homeDir, log, ...(opts.picture || {}) });
+  // and its Environment (environment.mjs): the app's and git's version, the system; read at the first report
+  const environment = createEnvironment({ cli: () => cliPath(), ...(opts.environment || {}) });
+  const bridge = createBridge({ engine, limits: opts.limits, log, about: { version: pluginVersion(), pictures: picture.can } });
   const disposables = [];
   const handle = (name, fn) => {
     const d = orca.panels.handle(name, (input, ctx) => fn(input || {}, ctx || {}));
@@ -106,6 +127,19 @@ export function start(orca, opts = {}) {
   const choices = choiceStore(home);
   const terminals = terminalStore(home);
   const tabs = createTabs({ host: orca.host, home, bridge, log });
+  const journal = createJournal({ activity, bridge, engine, startedAt });
+  // Updates (update.mjs): the channel says which release is the newest and which is the oldest that should still be
+  // used; the panels ask (nothing is locked). "Update Now" asks Orca's own CLI to move the plugin. A folder loaded for
+  // development is never moved.
+  const uo = opts.update || { fetch: null };
+  const ownKey = () => uo.key || pluginKey(pluginRoot(), pluginManifest().id || PRODUCT.id);
+  const update = createUpdate({ version: uo.version || pluginVersion(), log,
+    ...('fetch' in uo ? { fetch: uo.fetch } : {}), ...(uo.url ? { url: uo.url } : {}),
+    ...(uo.everyMs ? { everyMs: uo.everyMs } : {}), ...(uo.retryMs ? { retryMs: uo.retryMs } : {}) });
+  const updater = createUpdater({ cli: uo.cli || (() => cliPath()), key: ownKey(), log, spawnFn: uo.spawnFn, timeoutMs: uo.timeoutMs });
+  handle('update.state', () => update.read());
+  handle('update.run', () => updater.run());
+  update.start();
 
   // ---- the status bar item and its command (statusbar.mjs, showpanel.mjs; README "Status bar")
   // Which folder: focusedWorkspace exactly as the panels resolve it. The context is the last `workspace.changed`
@@ -160,9 +194,41 @@ export function start(orca, opts = {}) {
   handle('centre.beat', (input) => tabs.beat(input));
   handle('centre.state', (input) => tabs.state(input));
   // `input.context`: what the panel's own `workspace.readContext` answered (it carries the workspace id in the running app)
-  handle('workspace', (input) => {
+  let focusLine = '';
+  handle('workspace', async (input) => {
     if ('context' in input) panelReported(input.context);
-    return focusedWorkspace(orca.host, { context: 'context' in input ? input.context : undefined, choice, terminals });
+    const given = 'context' in input ? input.context : undefined;
+    const w = await focusedWorkspace(orca.host, { context: given, choice, terminals });
+    // One line in the log whenever the way the focus is found changes (kinds only, diagnostics.mjs): a report that
+    // comes without the dialog's text can still be explained from the log.
+    const line = 'focus: panel id ' + (given === undefined ? 'not sent' : idKind(given && given.workspaceId)) + '; ' + resolutionText(w);
+    if (line !== focusLine) { focusLine = line; log(line); activity.note('focus', line.slice(7)); }
+    return w;
+  });
+  // What a problem report carries from the worker (ui/git/report.js through hosts/orca/panel.js): kinds and counts of
+  // what Orca says about the focus, never a path, a name or an id. `input.context`: the panel's own reading.
+  // A report's screenshot (picture.mjs): the dialog hands it over in pieces, takes it back, or asks for it to be put on
+  // the clipboard as the tracker's page opens.
+  handle('report.picture.put', (input) => picture.put(input));
+  handle('report.picture.clear', () => picture.clear());
+  handle('report.picture.copy', () => picture.copy());
+  handle('diagnostics', async (input) => {
+    const given = 'context' in input ? input.context : undefined;
+    const resolved = await focusedWorkspace(orca.host, { context: given, choice, terminals });
+    const named = given && typeof given === 'object' && typeof given.displayName === 'string' ? given : null;
+    const facts = await describeFocus({ host: orca.host, api: orca.api, version: pluginVersion(), product: PRODUCT.name, env: await environment.read(), resolved,
+      remembered: !!(named && choice(named.displayName, typeof named.branch === 'string' ? named.branch : null)),
+      terminalsKnown: named ? terminalIds(named).filter((id) => terminals.get(id)).length : 0,
+      ...('context' in input ? { given } : {}) });
+    // then the worker's own state and what it did lately (activity.mjs): errors and timings the person may not have seen
+    let more = [];
+    try { more = [runtimeLine({ startedAt, clients: bridge.clients(), engine })].concat(activity.lines()); } catch (e) { more = []; }
+    const u = update.view();
+    more.push('update: ' + u.state + ', channel ' + u.checked);
+    // and the detailed log (journal.mjs): the worker over time, the engine, the panels, tables and the timeline
+    let detail = { head: [], tail: [] };
+    try { detail = journal.detail(); } catch (e) { detail = { head: ['[worker] not readable'], tail: [] }; }
+    return { environment: facts.environment, lines: facts.lines.concat(more), detail };
   });
   // The owner's answer when several workspaces carry the focused name (Orca calls every project's main worktree `main`).
   handle('workspace.choose', async (input) => {
@@ -191,10 +257,15 @@ export function start(orca, opts = {}) {
     bridge,
     status,
     showPanel,
+    picture,
+    update,
     stop() {
       if (current === self) current = null;
       if (self.stopped) return;
       self.stopped = true;
+      picture.clear();
+      journal.stop();
+      update.stop();
       disposables.splice(0).forEach((d) => { try { d.dispose(); } catch (e) { /* gone */ } });
       if (status) status.close();
       bridge.close();
@@ -211,7 +282,7 @@ export function start(orca, opts = {}) {
 }
 
 export default function activate(orca) {
-  start(orca);
+  start(orca, { update: {} });      // the real worker reads the update channel (update.mjs); a test's `start` does not
 }
 
 export function deactivate() {

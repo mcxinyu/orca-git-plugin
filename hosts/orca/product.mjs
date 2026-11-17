@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 export const PRODUCT = Object.freeze({
-  name: 'HayBrains Git',      // what a user reads (messages, the git messages the engine writes); the owner's name, 16 Nov 2026
+  name: 'Hay Git',      // what a user reads (messages, the git messages the engine writes); the owner's name, 16 Nov 2026
   id: 'git-panel',            // the engine's folder in every git dir (<git dir>/git-panel/) and the settings home
   homeEnv: 'GIT_PANEL_HOME',  // moves the settings home (tests pass `opts.home`)
   noteExt: '.gitpanel',       // the custom editor's file extension (orca-plugin.json `customEditors`)

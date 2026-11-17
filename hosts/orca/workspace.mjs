@@ -25,8 +25,9 @@ export function resolveWorkspace(context, list, opts = {}) {
   if (!context || typeof context.displayName !== 'string') return { status: 'none' };
   const name = context.displayName;
   const all = list && Array.isArray(list.workspaces) ? list.workspaces : [];
-  // The running app (1.4.255, API 1.6) puts the workspace's id into the context a PANEL reads; then nothing has to be
-  // matched by name. (The context a worker reads on its own had no id there; older Orca has none at all.)
+  // A context with the workspace's id needs no matching by name. Who gets the id differs by Orca version and by
+  // workspace: 1.4.255 (API 1.6) gave it to a PANEL only; from host API 1.7 a worker always gets it, and a panel only
+  // for a workspace with an `identity:` or `folder:` id (contextOf below fills that gap from the worker's own reading).
   if (typeof context.workspaceId === 'string' && context.workspaceId) {
     const exact = all.find((w) => w && w.id === context.workspaceId);
     if (exact) {
@@ -68,9 +69,22 @@ export function resolveWorkspace(context, list, opts = {}) {
 async function contextOf(host, given) {
   if (given === null) return null;                      // the panel saw: nothing is focused
   if (given && typeof given === 'object' && typeof given.displayName === 'string') {
-    return { displayName: given.displayName, branch: typeof given.branch === 'string' ? given.branch : null,
-      workspaceId: typeof given.workspaceId === 'string' ? given.workspaceId : null,
+    const seen = { displayName: given.displayName, branch: typeof given.branch === 'string' ? given.branch : null,
+      workspaceId: typeof given.workspaceId === 'string' && given.workspaceId ? given.workspaceId : null,
       terminals: terminalIds(given).map((id) => ({ id })) };
+    if (seen.workspaceId) return seen;
+    // Orca never tells a panel the id of a workspace that has no identity: that raw id embeds the folder's path and
+    // "reaches workers only, never panels or editors" (Orca's plugin-host-api-workspace-context.ts). So the panel of
+    // such a workspace reads a context without an id, and the worker's own reading of the same focus carries it
+    // (reported 17 Nov 2026: six projects' `main`, the question asked at every move between them).
+    try {
+      const own = await host.call('workspace.readContext', {});
+      const same = own && typeof own === 'object' && own.displayName === seen.displayName && (typeof own.branch === 'string' ? own.branch : null) === seen.branch;
+      if (same && typeof own.workspaceId === 'string' && own.workspaceId) {
+        return { ...seen, workspaceId: own.workspaceId, terminals: seen.terminals.length ? seen.terminals : terminalIds(own).map((id) => ({ id })) };
+      }
+    } catch (e) { /* refused: what the panel read stands */ }
+    return seen;
   }
   return host.call('workspace.readContext', {});
 }

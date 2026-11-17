@@ -2,10 +2,10 @@
   "manifestVersion": 2,
   "execution": "trusted-worker",
   "id": "git-panel",
-  "name": "HayBrains Git",
-  "version": "0.1.10",
+  "name": "Hay Git",
+  "version": "0.1.11",
   "description": "IntelliJ IDEA-style Git: commit, Log graph, diffs and blame.",
-  "author": { "name": "HayBrains Git" },
+  "author": { "name": "Hay Git" },
   "license": "MIT",
   "repository": "https://github.com/omerfarukgzr/orca-git-plugin",
   "icon": "hosts/orca/icons/git.png",
@@ -28,19 +28,19 @@
       { "id": "log", "title": "Git", "icon": "branch", "entry": "hosts/orca/panels/log.html", "ui": "html" }
     ],
     "customEditors": [
-      { "id": "view", "title": "HayBrains Git", "extensions": [".gitpanel"], "entry": "hosts/orca/panels/editor.html", "priority": "default", "icon": "hosts/orca/icons/git.png" }
+      { "id": "view", "title": "Hay Git", "extensions": [".gitpanel"], "entry": "hosts/orca/panels/editor.html", "priority": "default", "icon": "hosts/orca/icons/git.png" }
     ],
     "newFiles": [
       { "id": "git", "title": "Git", "extension": ".gitpanel", "icon": "hosts/orca/icons/git.png" }
     ],
     "commands": [
-      { "id": "showGitPanel", "title": "HayBrains Git: Show Git Panel", "when": "workspace" }
+      { "id": "showGitPanel", "title": "Hay Git: Show Git Panel", "when": "workspace" }
     ],
     "events": [
       { "on": "workspace.changed" }
     ],
     "statusBarItems": [
-      { "id": "repository", "text": "Git", "icon": "branch", "tooltip": "HayBrains Git: the repository of the focused workspace", "command": "showGitPanel" }
+      { "id": "repository", "text": "Git", "icon": "branch", "tooltip": "Hay Git: the repository of the focused workspace", "command": "showGitPanel" }
     ]
   }
 }
