@@ -8283,7 +8283,7 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
   const WT = (Git.worktrees = {});
 
   Git.addTR({
-    'Worktrees': 'Worktrees', '1 change': '1 değişiklik', '{0} changes': '{0} değişiklik', 'main': 'main', 'linked': 'linked',
+    'Worktrees': 'Worktrees', 'PR': 'PR', '1 change': '1 değişiklik', '{0} changes': '{0} değişiklik', 'main': 'main', 'linked': 'linked',
     'locked': 'locked', 'prunable': 'prunable', 'home': 'başlangıç', 'Back to {0}': '{0} klasörüne dön',
     'Showing worktree': 'Gösterilen worktree', 'Other worktrees have changes': 'Başka worktree\'lerde değişiklik var',
     'Changes could not be read': 'Değişiklikler okunamadı', 'The folder is gone': 'Klasör yok',
@@ -8434,8 +8434,11 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     el.setAttribute('aria-label', t('Worktrees') + ': ' + n);
   }
   WT.chip = function () {
+    // A word, not an icon (the owner, 17 Nov 2026: nobody could tell what the branching glyph beside a number meant;
+    // "write PR": for the owner every worktree is a pull request being worked on). The tooltip and the list still
+    // say Worktrees. The dot sits at the word's corner.
     const el = h('button.wb-repo.wb-wt', { type: 'button', id: 'wb-worktrees', hidden: true, 'aria-haspopup': 'true', onclick: (e) => open(e.currentTarget) },
-      h('span.wb-wt-ic', Git.icon('vcs/worktree'), h('span.wb-wt-dot', { hidden: true })), h('span.wb-wt-n', ''));
+      h('span.wb-wt-ic', h('span.wb-wt-word', t('PR')), h('span.wb-wt-dot', { hidden: true })), h('span.wb-wt-n', ''));
     chips.add(el);
     paintChip(el);
     WT.load();
@@ -16707,7 +16710,7 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
   // The action menu of one ref (B.menuFor) is branches-menu.js.
 
   // ---------------------------------------------------------------- the popup
-  const HOVER_MS = 220;          // how long the pointer rests on a row before its submenu opens
+  const HOVER_MS = 220;          // how long the pointer rests on a row's arrow, or on a menu item, before its submenu opens
 
   B.close = function () { if (current) current.pop.close(); };
   /** Opens the Branches popup under `anchor` (the widget); a second call closes it. */
@@ -17010,9 +17013,13 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
       clearTimeout(st.timer);
       const open = st.levels[0];
       if (open && open.owner === r.id) return;
+      // A row's menu opens on a click, or when the pointer rests on the row's arrow (›), as in IntelliJ (research
+      // notes C §5). Not because the pointer rests on the row (the owner, 17 Nov 2026: in a long list every row the
+      // pointer stopped on threw its menu open). Resting on another row closes a menu that is open.
+      const onArrow = !!(e.target.closest && e.target.closest('.gb-more'));
       st.timer = setTimeout(() => {
         if (st.sel !== r.id || pop.closed) return;
-        if (r.type === 'branch' || r.type === 'tag') openSub(r, false);
+        if (onArrow && (r.type === 'branch' || r.type === 'tag')) openSub(r, false);
         else if (st.levels[0] && st.levels[0].owner !== 'gear') closeLevels(0);
       }, HOVER_MS);
     });

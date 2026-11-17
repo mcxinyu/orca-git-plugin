@@ -778,12 +778,28 @@ body { background: var(--g-panel); color: var(--g-text); overflow: hidden; }
 .wb-rhead-chip { justify-content: flex-start; }
 /* the header's Options button (options.js) keeps the right end, whatever stands before it */
 .wb-rhead > .wb-options { margin-left: auto; flex: none; }
+/* A narrow panel (the owner, 17 Nov 2026, of a 500 px one: the tabs, the project, the worktrees and the branch were
+   squeezed into one line, each cut to a few letters). When the header names where the person is (the host's project
+   chip or the worktrees chip), that goes to a line of its own under the tabs and Options: the project, the
+   worktrees, the branch. A single view fills its frame, so the frame's width is the panel's. */
+@media (max-width: 620px) {
+  .wb-single > .wb-rhead:has(> .wb-repo:not([hidden])):has(> .wb-widget) { flex-wrap: wrap; height: auto; row-gap: 0; padding-bottom: 6px; }
+  .wb-single > .wb-rhead:has(> .wb-repo:not([hidden])):has(> .wb-widget)::after { content: ""; order: 1; flex: 0 0 100%; height: 0; }
+  .wb-single > .wb-rhead:has(> .wb-repo:not([hidden])):has(> .wb-widget) > .wb-rtitle,
+  .wb-single > .wb-rhead:has(> .wb-repo:not([hidden])):has(> .wb-widget) > .wb-rhead-tabs { min-height: 39px; display: flex; align-items: center; }
+  .wb-single > .wb-rhead:has(> .wb-repo:not([hidden])):has(> .wb-widget) > .wb-rtitle[hidden],
+  .wb-single > .wb-rhead:has(> .wb-repo:not([hidden])):has(> .wb-widget) > .wb-rhead-tabs[hidden] { display: none; }
+  .wb-single > .wb-rhead:has(> .wb-repo:not([hidden])):has(> .wb-widget) > .wb-repo,
+  .wb-single > .wb-rhead:has(> .wb-repo:not([hidden])):has(> .wb-widget) > .wb-widget { order: 2; }
+}
 .wp-name { font-weight: 600; flex: none; }
 
 /* ---- Worktrees (worktrees.js): the chip beside the repository chip, its list's rows, the strip while another shows */
-.wb-wt { flex: none; gap: 5px; padding: 0 7px; font-weight: 600; }
+.wb-wt, .wb-single .wb-wt { flex: none; gap: 5px; padding: 0 7px; font-weight: 600; white-space: nowrap; }   /* never squeezed: it is short */
 .wb-wt-ic { position: relative; display: inline-flex; flex: none; }
-.wb-wt-dot { position: absolute; top: -1px; right: -2px; width: 6px; height: 6px; border-radius: 50%; background: var(--g-accent); box-shadow: 0 0 0 1.5px var(--g-panel); }
+.wb-wt-word { font-size: 11px; font-weight: 600; letter-spacing: .3px; color: var(--g-dim); }
+.wb-wt-dot { position: absolute; top: 0; right: -5px; width: 6px; height: 6px; border-radius: 50%; background: var(--g-accent); box-shadow: 0 0 0 1.5px var(--g-panel); }
+.wb-wt-ic:has(> .wb-wt-dot:not([hidden])) { margin-right: 3px; }
 .wb-wt-n { font-variant-numeric: tabular-nums; }
 .cm-title.cm-bold { font-weight: 600; }
 .cm-hint { flex: 0 100 auto; min-width: 0; color: var(--shell-text); }
@@ -791,15 +807,23 @@ body { background: var(--g-panel); color: var(--g-text); overflow: hidden; }
 .cm-badge { display: flex; flex: none; width: 14px; height: 14px; opacity: .8; }
 .cm-badge svg { width: 14px; height: 14px; display: block; }
 .cm-row .cm-short { font-variant-numeric: tabular-nums; }
+/* The strip that says another worktree is shown: where the person is must be readable in a narrow panel too (the
+   owner, 17 Nov 2026, of a 487 px panel: "hd-pr-ak…" and half a branch name). Nothing is cut: the branch goes to a
+   line of its own when it does not fit beside the name (the strip grows), and a name longer than the line breaks.
+   The words "Showing worktree" are for a wide page: in a panel the icon, the color and "Back to …" say it, and
+   the room goes to the names. */
 .wb-wt-strip {
-  flex: none; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 6px 0 12px; min-width: 0;
+  flex: none; display: flex; align-items: center; gap: 6px; min-height: 28px; padding: 2px 6px 2px 12px; min-width: 0;
+  container: wt-strip / inline-size;
   background: var(--g-accent-soft); border-bottom: 1px solid var(--g-accent-line); color: var(--g-text); font-size: 12px;
 }
 .wb-wt-strip > .g-ic { flex: none; width: 14px; height: 14px; }
-.wb-wt-strip-text { flex: 1 1 0; min-width: 0; display: flex; align-items: baseline; gap: 6px; overflow: hidden; white-space: nowrap; }
-.wb-wt-strip-what { flex: none; color: var(--g-dim); }
-.wb-wt-strip-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
-.wb-wt-strip-branch { flex: 0 100 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--g-dim); }
+.wb-wt-strip-text { flex: 1 1 0; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px; row-gap: 0; line-height: 18px; overflow: hidden; }
+.wb-wt-strip-what { flex: none; color: var(--g-dim); white-space: nowrap; }
+/* a name longer than the line breaks (after a hyphen or a slash where it can) instead of losing its end */
+.wb-wt-strip-name { flex: 0 1 auto; min-width: 0; max-width: 100%; overflow-wrap: anywhere; font-weight: 600; }
+.wb-wt-strip-branch { flex: 0 1 auto; min-width: 0; max-width: 100%; overflow-wrap: anywhere; color: var(--g-dim); }
+@container wt-strip (max-width: 600px) { .wb-wt-strip-what { display: none; } }
 .wb-wt-back {
   flex: 0 0 auto; max-width: 55%; display: inline-flex; align-items: center; gap: 2px; height: 22px; padding: 0 8px 0 4px; border: 0;
   border-radius: var(--g-radius); background: transparent; color: var(--g-link); font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap;

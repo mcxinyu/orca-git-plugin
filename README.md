@@ -32,7 +32,7 @@ Needs Orca 1.4.248 or newer and `git` on the `PATH`. Developed and tested on mac
 - **Annotate** (blame) in the file view, and an inline blame at the end of the line you click.
 - **Console**: every `git` command the plugin runs, as it ran.
 - **Worktrees**: when the repository has more than one worktree (say, one per agent session), a chip in the panel's
-  header lists them with their branch and how many changes each has. Pick one to see its changes and Log in the same
+  header ("PR" and their number) lists them with their branch and how many changes each has. Pick one to see its changes and Log in the same
   panel, without checking anything out; a strip names it and takes you back. Its diffs open in the center tab too,
   which then says which worktree it shows.
 - **Stash**: IntelliJ's Stash dialog (Git ▸ Stash Changes…) and a Stash tab beside Commit with each stash's files,

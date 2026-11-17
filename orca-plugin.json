@@ -3,7 +3,7 @@
   "execution": "trusted-worker",
   "id": "git-panel",
   "name": "Hay Git",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "description": "IntelliJ IDEA-style Git: commit, Log graph, diffs and blame.",
   "author": { "name": "Hay Git" },
   "license": "MIT",
