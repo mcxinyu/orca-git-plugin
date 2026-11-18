@@ -1,16 +1,22 @@
 // Updates under Orca: whether a newer release is out, and whether this one should still be used (hosts/orca/README.md
-// "Updates"). Orca knows no "minimum plugin version": it installs a listed release by itself 12 hours after the
-// listing, unless the person turned that off or the release asks for new access. For a fix nobody should work without,
-// the plugin's public repository carries one small file, the channel, on a branch of its own (`updates`, so a change to
-// it touches no release), written by hand once a release is listed in the catalog:
+// "Updates"). The promise (the owner, 18 Nov 2026): once a release is out, the Options button (⋮) says so, and its
+// Update Now brings the newest release without opening anything else.
+// Which release is the newest comes from Orca's community catalog itself, not from a file written by hand: its
+// `status.json` names, per repository, the release it lists (`"omerfarukgzr/orca-git-plugin": { "state": "listed",
+// "ref": "refs/tags/omerfarukgzr/orca-git-plugin/0.1.12" }`), written in the same commit as the catalog Orca
+// installs from. A release the catalog does not list yet shows nothing: Update Now (`orca plugin update`, which
+// refreshes that catalog first) could not install it. Measured 18 Nov 2026: 0.1.12 was listed hours after its tag,
+// 0.1.11 never (0.1.12 came first).
+// For a fix nobody should work without, the plugin's public repository carries one small file, the channel, on a
+// branch of its own (`updates`, so a change to it touches no release):
 //   { "schema": 1, "latest": "0.1.12", "minimum": "0.1.11", "note": "one sentence a person reads" }
-// The worker reads it when it starts and every 6 hours with a plain GET. Nothing about the person, the machine or a
-// repository goes out: no query, no identifier, a fixed User-Agent.
-//   below `latest`   → 'available'  a dot on the Options button and a row in its menu (ui/git/update.js)
-//   below `minimum`  → 'required'   the same, and the update dialog opens by itself, at most once a day
+// Only its `minimum` and `note` count now (0.1.11 and 0.1.12 read `latest` too). Both files are read when the worker
+// starts and every 6 hours with a plain GET. Nothing about the person, the machine or a repository goes out: no query,
+// no identifier, a fixed User-Agent.
+//   below the listed release            → 'available'  a dot on the Options button and a row in its menu (ui/git/update.js)
+//   below the channel's `minimum` too   → 'required'   the same, and the update dialog opens by itself, at most once a day
 // Nothing is ever locked (the owner, 17 Nov 2026): below the minimum the panels work as before and ask. What could not
-// be read changes nothing: no network, no file, a file that does not parse, a `minimum` above `latest` → the last
-// answer that did parse stays (none yet: 'unknown', nothing shows).
+// be read changes nothing: the last answer that did parse stays (none yet: 'unknown', nothing shows).
 import https from 'node:https';
 import { spawn } from 'node:child_process';
 
@@ -19,7 +25,10 @@ export const CHECK_EVERY_MS = 6 * 60 * 60 * 1000;
 export const RETRY_AFTER_MS = 10 * 60 * 1000;      // after a read that did not get through (offline, a timeout, 5xx)
 export const NOTE_MAX = 200;
 export const BODY_MAX = 16 * 1024;
-export const UPDATE_TIMEOUT_MS = 90000;
+export const REPOSITORY = 'omerfarukgzr/orca-git-plugin';
+export const CATALOG_STATUS_URL = 'https://raw.githubusercontent.com/stablyai/orca-community-plugins/main/status.json';
+export const CATALOG_MAX = 2 * 1024 * 1024;        // 94 KB on 18 Nov 2026, for every plugin of the catalog
+export const UPDATE_TIMEOUT_MS = 240000;   // Orca downloads the catalog first (30–90 s measured)
 
 /** "1.2.3" → [1, 2, 3]; anything else (a range, a pre-release, a `v`) → null. */
 export function parseVersion(v) {
@@ -49,9 +58,34 @@ export function parseChannel(text) {
   return { latest: latest.join('.'), minimum: minimum.join('.'), note };
 }
 
-/** 'unknown' | 'current' | 'available' | 'required' for the running version against a parsed channel. */
-export function stateOf(current, channel) {
+/**
+ * The catalog's `status.json` text → the version it lists for `repo` ('0.1.12'), null when it lists none (not listed,
+ * held back, an entry of another shape), or undefined when the text is not such a file.
+ */
+export function parseListed(text, repo = REPOSITORY) {
+  let v = null;
+  try { v = JSON.parse(String(text)); } catch (e) { return undefined; }
+  if (!v || typeof v !== 'object' || !v.repos || typeof v.repos !== 'object') return undefined;
+  const e = v.repos[repo];
+  if (!e || e.state !== 'listed' || typeof e.ref !== 'string') return null;
+  const prefix = 'refs/tags/' + repo + '/';
+  const ver = e.ref.startsWith(prefix) ? e.ref.slice(prefix.length).replace(/^v/, '') : '';
+  return parseVersion(ver) ? parseVersion(ver).join('.') : null;
+}
+
+/**
+ * 'unknown' | 'current' | 'available' | 'required' for the running version. With `listed` (the catalog's release,
+ * or null when it could not be read yet) that release is the newest; without it (undefined) the channel's `latest`.
+ */
+export function stateOf(current, channel, listed) {
   const cur = parseVersion(current);
+  if (listed !== undefined) {
+    const top = parseVersion(listed);
+    if (!cur || !top) return 'unknown';
+    if (compareVersions(cur, top) >= 0) return 'current';
+    if (channel && compareVersions(cur, parseVersion(channel.minimum)) < 0) return 'required';
+    return 'available';
+  }
   if (!cur || !channel) return 'unknown';
   if (compareVersions(cur, parseVersion(channel.minimum)) < 0) return 'required';
   if (compareVersions(cur, parseVersion(channel.latest)) < 0) return 'available';
@@ -85,33 +119,50 @@ export function fetchText(url, { timeoutMs = 8000, maxBytes = BODY_MAX, get = ht
 }
 
 /**
- * The channel's reader. `version`: the running plugin's; `fetch(url)`: fetchText, a test's stand-in, or null (never
- * reads: the tests' default, worker.mjs). `view()` answers
- *   { state, current, latest, minimum, note, checked }
- * with `checked` how the last read went: 'never' | 'off' | 'ok' | 'invalid' | 'not_found' | 'offline' | 'timeout' | …
+ * The reader of the catalog and the channel. `version`: the running plugin's; `fetch(url, opts)`: fetchText, a test's
+ * stand-in, or null (never reads: the tests' default, worker.mjs); `catalog`: the catalog's status url, or null to go
+ * by the channel's `latest` alone. `view()` answers
+ *   { state, current, latest, minimum, note, checked, channel }
+ * with `checked` how the last read of the catalog went (of the channel without a catalog) and `channel` how the
+ * channel's went: 'never' | 'off' | 'ok' | 'invalid' | 'not_found' | 'offline' | 'timeout' | …
  */
-export function createUpdate({ version, url = CHANNEL_URL, fetch = fetchText, log = () => {}, everyMs = CHECK_EVERY_MS, retryMs = RETRY_AFTER_MS, now = Date.now }) {
-  let channel = null;                       // the last answer that parsed; a failed read never takes it away
-  let checked = fetch ? 'never' : 'off';
+export function createUpdate({ version, url = CHANNEL_URL, catalog = CATALOG_STATUS_URL, fetch = fetchText, log = () => {}, everyMs = CHECK_EVERY_MS, retryMs = RETRY_AFTER_MS, now = Date.now }) {
+  let channel = null;                       // the last answers that parsed; a failed read never takes them away
+  let listed = null;
+  let checked = fetch ? 'never' : 'off', channelChecked = checked, catalogChecked = checked;
   let at = 0, inflight = null, timer = null, stopped = false, said = '';
-  const view = () => ({
-    state: stateOf(version, channel), current: parseVersion(version) ? version : null,
-    latest: channel ? channel.latest : null, minimum: channel ? channel.minimum : null, note: channel ? channel.note : '', checked,
-  });
+  const view = () => {
+    const latest = catalog ? listed : channel ? channel.latest : null;
+    const minimum = channel ? channel.minimum : latest ? '0.0.0' : null;
+    return {
+      state: stateOf(version, channel, catalog ? listed : undefined), current: parseVersion(version) ? version : null,
+      latest, minimum, note: channel && channel.latest === latest ? channel.note : '', checked, channel: channelChecked,
+    };
+  };
+  const outcome = (r) => (r && typeof r.why === 'string' && /^[a-z0-9_]{1,24}$/.test(r.why) ? r.why : 'offline');
   function check() {
     if (!fetch || stopped) return Promise.resolve(view());
     if (inflight) return inflight;
-    inflight = Promise.resolve().then(() => fetch(url)).then((r) => {
+    const readChannel = Promise.resolve().then(() => fetch(url)).then((r) => {
       if (r && r.ok === true) {
         const c = parseChannel(r.text);
-        if (c) { channel = c; checked = 'ok'; } else checked = 'invalid';
-      } else checked = r && typeof r.why === 'string' && /^[a-z0-9_]{1,24}$/.test(r.why) ? r.why : 'offline';
-    }, () => { checked = 'offline'; }).then(() => {
+        if (c) { channel = c; channelChecked = 'ok'; } else channelChecked = 'invalid';
+      } else channelChecked = outcome(r);
+    }, () => { channelChecked = 'offline'; });
+    const readCatalog = !catalog ? null : Promise.resolve().then(() => fetch(catalog, { maxBytes: CATALOG_MAX, timeoutMs: 15000 })).then((r) => {
+      if (r && r.ok === true) {
+        const l = parseListed(r.text);
+        if (l === undefined) catalogChecked = 'invalid'; else { listed = l; catalogChecked = 'ok'; }
+      } else catalogChecked = outcome(r);
+    }, () => { catalogChecked = 'offline'; });
+    inflight = Promise.all([readChannel, readCatalog]).then(() => {
+      checked = catalog ? catalogChecked : channelChecked;
       at = now();
       inflight = null;
       const v = view();
       // one line whenever the outcome changes; versions and a state only
-      const line = 'update check: ' + (v.current || 'unknown version') + ' is ' + v.state + ' (channel ' + checked
+      const line = 'update check: ' + (v.current || 'unknown version') + ' is ' + v.state
+        + (catalog ? ' (catalog ' + catalogChecked + (listed ? ', lists ' + listed : '') + '; channel ' : ' (channel ') + channelChecked
         + (channel ? ', latest ' + channel.latest + ', minimum ' + channel.minimum : '') + ')';
       if (line !== said) { said = line; log(line); }
       return v;
@@ -150,12 +201,24 @@ export function createUpdate({ version, url = CHANNEL_URL, fetch = fetchText, lo
 }
 
 /**
- * "Update Now": Orca's own CLI moves an installed plugin to the release its catalog offers (`orca plugin update
- * <plugin-key>`; exit 0 done, 3 the update asks for new access and waits for the person's approval). The worker runs
- * the CLI bundled with the app it runs in (showpanel.mjs cliPath), with an argument array, no shell.
- * `run()` → { result }: 'done' (Orca answered 0: it moved the plugin, or its catalog offers nothing newer yet; when it
- * moved it, Orca stops this worker and the answer may never arrive), 'approval', 'failed', 'timeout', 'no_cli',
- * 'development' (a folder loaded for development has no release to move to; never run), 'running'.
+ * "Update Now" runs Orca's own `orca plugin update <key>`: it refreshes the plugin's catalog first and moves the
+ * plugin to the release listed there, keeping the approval when the release asks for no new access. Measured on
+ * 18 Nov 2026 (Orca 1.4.259): ~30 s, an older measurement ~84 s for the catalog download, hence the long timeout.
+ * Installing the release's tag straight from this repository was tried and refused: the catalog installs from
+ * `stablyai/orca-community-mirror`, so Orca counts our repository as a move and asks for approval
+ * (`approval_required`, `repositoryMoved`), and the mirror's own tag installs under the key `stablyai.git-panel`,
+ * which Orca blocks as an official name. So a release reaches Update Now once the catalog lists it (hours, measured).
+ */
+export function updateArgs(key) {
+  return ['plugin', 'update', key];
+}
+
+/**
+ * Runs the CLI bundled with the app the worker runs in (showpanel.mjs cliPath), with an argument array, no shell.
+ * `run()` → { result }: 'done' (Orca answered 0: it moved the plugin, or its catalog offers nothing newer yet; once it
+ * swapped the plugin, Orca stops this worker and the answer may never arrive), 'approval' (exit 3: the release asks
+ * for new access and waits for the person's approval in Orca), 'failed', 'timeout', 'no_cli', 'development' (a folder
+ * loaded for development has no release to move to; never run), 'running'.
  */
 export function createUpdater({ cli, key, log = () => {}, spawnFn = spawn, timeoutMs = UPDATE_TIMEOUT_MS }) {
   let running = null;
@@ -164,6 +227,7 @@ export function createUpdater({ cli, key, log = () => {}, spawnFn = spawn, timeo
     if (running) return running;
     const bin = cli();
     if (!bin) { log('update: no Orca CLI next to this app'); return Promise.resolve({ result: 'no_cli' }); }
+    const args = updateArgs(key);
     running = new Promise((resolve) => {
       let child = null, done = false, err = '', timer = null;
       const end = (result, why) => {
@@ -175,7 +239,7 @@ export function createUpdater({ cli, key, log = () => {}, spawnFn = spawn, timeo
         resolve({ result });
       };
       try {
-        child = spawnFn(bin, ['plugin', 'update', key], { shell: false, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true, env: process.env });
+        child = spawnFn(bin, args, { shell: false, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true, env: process.env });
       } catch (e) { end('failed', 'the CLI did not start: ' + String((e && e.code) || 'error')); return; }
       timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch (e) { /* gone */ } end('timeout', timeoutMs + ' ms'); }, timeoutMs);
       if (child.stderr) child.stderr.on('data', (d) => { if (err.length < 300) err += String(d); });

@@ -26,6 +26,7 @@ import locate from './read/locate.js';
 import worktrees from './read/worktrees.js';
 import stashRead from './read/stash.js';
 import stashOps from './ops/stash.js';
+import lineStats from './read/line-stats.js';
 
 // Mutating operations (core/ops/*.js) are imported above and appended here.
 export const METHODS = [
@@ -54,4 +55,5 @@ export const METHODS = [
   ...worktrees,
   ...stashRead,
   ...stashOps,
+  ...lineStats,
 ];

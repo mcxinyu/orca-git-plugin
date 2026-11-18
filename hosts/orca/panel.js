@@ -135,12 +135,15 @@
     // Updates (ui/git/update.js; the worker reads the channel, hosts/orca/update.mjs): a newer release is a dot on the
     // Options button and a row in its menu; below the channel's minimum the dialog also opens by itself, once a day.
     // Nothing is ever locked. A worker that does not answer (or could not read the channel) says nothing, and nothing
-    // is shown. "Update Now" asks the worker to run Orca's own `plugin update`; the sentence says the way by hand.
+    // is shown. "Update Now" asks the worker to run Orca's own `plugin update` (update.mjs updateArgs); the sentence says
+    // the way by hand. "Check for Updates…" (always in the Options menu) reads the channel now.
     const readUpdate = () => Git.orca.request('update.state', {}, { retries: 0, timeoutMs: 4000 }).then((r) => r || null, () => null);
     Git.host.update = {
       steps: () => t('In Orca, open Settings → Plugins, choose ⋯ → Refresh catalogs, then press Update on {0}.', PRODUCT),
       check: readUpdate,
-      run: () => Git.orca.request('update.run', {}, { retries: 0, timeoutMs: 120000 }),
+      // "Check for Updates…": the worker reads the channel now
+      checkNow: () => Git.orca.request('update.check', {}, { retries: 0, timeoutMs: 12000 }),
+      run: () => Git.orca.request('update.run', {}, { retries: 0, timeoutMs: 250000 }),
     };
     const updating = readUpdate();     // asked now, looked at before the UI starts
 

@@ -403,6 +403,8 @@
      Git.host.skinLabel      the label of the default skin in the Appearance menu; default "Default"
      Git.host.skinAliases    stored or ?skin= values read as another skin, e.g. { old: 'default' }
      Git.host.startCommand   the command that starts the server, named on the "cannot reach" page (none: not named)
+     Git.host.unreachableHint  a function returning the (translated) advice for that page when a host runs the server
+                             itself; it takes the place of the start command's line
    Loaded first in ui/index.html; read only when the UI runs, so a host script loaded before it may use it too. */
 (function () {
   'use strict';
@@ -7594,6 +7596,8 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     'Start it with "{0}" and try again.': '"{0}" ile başlatıp yeniden dene.',
     'Loading {0}…': '{0} yükleniyor…', 'Commit view': 'Commit görünümü', 'Open the Git tool window (⌘9)': 'Git araç penceresini aç (⌘9)',
     'Options': 'Seçenekler', 'Files': 'Dosyalar',
+    'This project has no folder.': 'Bu projeye klasör seçilmemiş.',
+    'Choose a folder for the project to see its repository here.': 'Projeye klasör seçince deposu burada görünür.',
   });
 
   const state = { right: true, rightView: 'commit', git: true, tabs: [], active: 'log', editor: [], current: null, ready: false };
@@ -7997,8 +8001,10 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
   W.unreachable = function (retry) {
     // the command that starts the server, when the host has one (the standalone server's; a worker starts on its own)
     const cmd = Git.host && Git.host.startCommand;
+    // a host that runs the server itself says what to do instead (a function: the text is translated when shown)
+    const hint = Git.host && typeof Git.host.unreachableHint === 'function' ? Git.host.unreachableHint() : null;
     const again = () => { if (unreachableOff) { unreachableOff(); unreachableOff = null; } retry(); };
-    message({ title: t('Cannot reach the {0} server', Git.product()), text: cmd ? t('Start it with "{0}" and try again.', cmd) : null,
+    message({ title: t('Cannot reach the {0} server', Git.product()), text: hint || (cmd ? t('Start it with "{0}" and try again.', cmd) : null),
       actions: [{ label: t('Retry'), primary: true, id: 'wb-retry', run: () => { if (Git.backend.reconnect) Git.backend.reconnect(); again(); } }] });
     // The page recovers by itself: the transport keeps trying to reach the server (with its own backoff), and once
     // the stream is open again (the server came back: restarted, crashed and restarted, a new build) this page tries
@@ -8062,6 +8068,12 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     // `tab`: a view a host registers (Git.views.tab, the Orca center tab) that shows one page full size
     W.view = ['commit', 'log', 'console', 'branches', 'files', 'tab'].indexOf(q.get('view')) >= 0 ? q.get('view') : null;
     document.documentElement.classList.toggle('wb-is-single', !!W.view);
+    // `repo=` present but empty: the host's project has no folder. Say so instead of opening another project's
+    // last repository.
+    if (q.has('repo') && !q.get('repo')) {
+      message({ title: t('This project has no folder.'), text: t('Choose a folder for the project to see its repository here.') });
+      return;
+    }
     let path = q.get('repo') || prefs().get('lastRepo', null);
     if (!path) {
       try {
@@ -8283,9 +8295,9 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
   const WT = (Git.worktrees = {});
 
   Git.addTR({
-    'Worktrees': 'Worktrees', 'PR': 'PR', '1 change': '1 değişiklik', '{0} changes': '{0} değişiklik', 'main': 'main', 'linked': 'linked',
+    'Worktrees': 'Worktrees', 'WT': 'WT', '1 change': '1 değişiklik', '{0} changes': '{0} değişiklik', 'main': 'main', 'linked': 'linked',
     'locked': 'locked', 'prunable': 'prunable', 'home': 'başlangıç', 'Back to {0}': '{0} klasörüne dön',
-    'Showing worktree': 'Gösterilen worktree', 'Other worktrees have changes': 'Başka worktree\'lerde değişiklik var',
+    'Showing worktree': 'Gösterilen worktree',
     'Changes could not be read': 'Değişiklikler okunamadı', 'The folder is gone': 'Klasör yok',
   });
   // IntelliJ's GitIcons.Worktree (git4idea, ui/git/icons/worktree_dark.svg; icons/index.md); icons.js is generated
@@ -8360,7 +8372,7 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
   // Only opening the list counts (worktree.list with counts: a status in every worktree, 24 of them cost seconds);
   // every other read (the chip, a page that shows again, the shown repository's changes, a host's folder lookup) asks
   // with `counts: false`. `counted`: the list holds the counts of a counting read; after a read without counts the
-  // rows keep the counts the last opening found (`counted` false), so the chip's dot shows what that opening saw.
+  // rows keep the counts the last opening found (`counted` false).
   const data = { common: null, list: null, at: 0, counted: false, loaded: false };
   const inflight = { plain: null, counts: null };
   let seq = 0, applied = 0;
@@ -8419,7 +8431,6 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     return mine.p;
   };
   const shownRoot = () => Git.repo.root;
-  const others = (list) => (list || []).filter((w) => w.path !== shownRoot());
 
   // ---------------------------------------------------------------- the chip
   const chips = new Set();
@@ -8427,18 +8438,18 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     const list = WT.list();
     const n = list ? list.length : 0;
     el.hidden = n < 2;
-    const dirty = others(list).some((w) => w.changes > 0);
+    // No "other worktrees have changes" dot (the owner, 18 Nov 2026: with several worktrees in use it is always on and
+    // says nothing); the list shows each worktree's count.
     el.querySelector('.wb-wt-n').textContent = String(n);
-    el.querySelector('.wb-wt-dot').hidden = !dirty;
-    el.title = t('Worktrees') + (dirty ? '\n' + t('Other worktrees have changes') : '');
+    el.title = t('Worktrees');
     el.setAttribute('aria-label', t('Worktrees') + ': ' + n);
   }
   WT.chip = function () {
     // A word, not an icon (the owner, 17 Nov 2026: nobody could tell what the branching glyph beside a number meant;
-    // "write PR": for the owner every worktree is a pull request being worked on). The tooltip and the list still
-    // say Worktrees. The dot sits at the word's corner.
+    // first "PR", then 18 Nov 2026: "WT", short for worktree, since PR reads as a pull request). The tooltip and the
+    // list still say Worktrees.
     const el = h('button.wb-repo.wb-wt', { type: 'button', id: 'wb-worktrees', hidden: true, 'aria-haspopup': 'true', onclick: (e) => open(e.currentTarget) },
-      h('span.wb-wt-ic', h('span.wb-wt-word', t('PR')), h('span.wb-wt-dot', { hidden: true })), h('span.wb-wt-n', ''));
+      h('span.wb-wt-ic', h('span.wb-wt-word', t('WT'))), h('span.wb-wt-n', ''));
     chips.add(el);
     paintChip(el);
     WT.load();
@@ -8525,7 +8536,7 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
   }
   // The other worktrees are not watched: the list (without counts: which worktrees, their branches) is read again at
   // most every 15 s while the shown repository changes, and when the page shows again. Counts come only from opening
-  // the list, so the chip's dot shows what the last opening found.
+  // the list.
   let lastMove = 0;
   Git.on('change', (ev) => {
     redraw();
@@ -8622,12 +8633,15 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
   // How long a link GitHub takes, measured on 17 Nov 2026 with filler text. The new-issue page answers a link of up
   // to 6900 characters and fails above it (an error page). Someone who is not signed in is sent to the sign-in page
   // with the link carried along, spelled again (every mark of it becomes three characters): that works up to about
-  // 7580 characters of the redirect; a longer one is dropped and the report with it. Both are kept, with room to
+  // 7580 characters of the redirect; a longer one is dropped and the report with it. Measured again on 18 Nov 2026
+  // after a friend who was not signed in got GitHub's "Whoops, something went wrong!" (500) page: the sign-in page
+  // now fails above about 7020 characters of the redirect (the estimate below matched GitHub's own redirect to the
+  // character), and a browser also sends its cookies, so the redirect is kept at 6000. Both are kept, with room to
   // spare, so a report arrives whoever opens it.
   const githubFits = (url) => {
     try {
       const href = new URL(url).href;
-      return href.length <= 6500 && 35 + href.length + 2 * (href.match(/[^A-Za-z0-9_.-]/g) || []).length <= 7400;
+      return href.length <= 6500 && 35 + href.length + 2 * (href.match(/[^A-Za-z0-9_.-]/g) || []).length <= 6000;
     } catch (e) { return false; }
   };
   /** The host's report settings; a `github` new-issue page is turned into the `url` and `fits` of that tracker. */
@@ -9220,7 +9234,8 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
      Git.host.update = {
        steps()  → one sentence: how a person updates by hand in this host
        check()  → Promise<info>     what the host's update channel says now
-       run()    → Promise<{ result }>   'done' | 'approval' | anything else: asks the host to update by itself
+       checkNow() → Promise<info>   optional: reads the channel now ("Check for Updates…" in the Options menu)
+       run()    → Promise<{ result }>   'done' | 'approval' | 'current' | anything else: asks the host to update by itself
      }
      info = { state: 'unknown' | 'current' | 'available' | 'required', current, latest, minimum, note }
    Nothing here ever locks the page (the owner, 17 Nov 2026: no lock, not below the minimum either).
@@ -9234,7 +9249,9 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
      Git.update.refresh()   → Promise<state>   asks the host again (a page that became visible)
      Git.update.remind()    → the dialog, when the state is 'required' and it was not shown today; else null
      Git.update.state()     → the state so far
-     Git.update.rows()      → the Options menu's rows
+     Git.update.rows()      → the Options menu's rows: "Check for Updates…" always (with a host), "Update to …" too
+                              while a newer release is out
+     Git.update.checkNow()  → Promise: reads the channel now; a newer release opens its dialog, else a short answer
      Git.update.open()      → the dialog of a newer release
      Git.update.reload()    → starts the page again after an update (replaceable) */
 (function () {
@@ -9248,11 +9265,16 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     '{0} {1} is out. You have {2}.': '{0} {1} çıktı. Sende {2} var.',
     '{0} {1} has a problem that version {2} fixes. Please update.': '{0} {1} sürümünde, {2} sürümünün düzelttiği bir sorun var. Lütfen güncelle.',
     'Update Now': 'Şimdi güncelle', 'Later': 'Sonra', 'Updating…': 'Güncelleniyor…',
+    'Updating… This can take a minute or two.': 'Güncelleniyor… Bir iki dakika sürebilir.',
     'Updated. Reopen this panel if it does not reload by itself.': 'Güncellendi. Panel kendiliğinden yenilenmezse kapatıp yeniden aç.',
     'The update needs your approval because it asks for new access.': 'Güncelleme yeni izin istediği için onayını bekliyor.',
     'The update could not be installed from here.': 'Güncelleme buradan kurulamadı.',
     'No newer version was found yet.': 'Henüz daha yeni bir sürüm bulunamadı.',
     'Still version {0}.': 'Sürüm hâlâ {0}.',
+    'Check for Updates…': 'Güncellemeleri denetle…', 'Check for Updates': 'Güncellemeleri denetle', 'Checking…': 'Denetleniyor…',
+    'You have the latest version, {0} {1}.': 'En yeni sürüm sende: {0} {1}.',
+    'Could not check for updates. Try again later.': 'Güncellemeler denetlenemedi. Biraz sonra yeniden dene.',
+    'You already have the latest version.': 'En yeni sürüm zaten sende.',
   });
   const U = (Git.update = {});
   const REMINDED = 'product.update.reminded';      // host pref: "<minimum>@<day>" of the last dialog that opened by itself
@@ -9289,7 +9311,40 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     return Promise.resolve().then(() => H.check()).then((next) => U.apply(next), () => info.state);
   };
 
-  U.rows = () => (host() && newer() ? [{ label: t('Update to {0}…', info.latest), action: () => U.open() }] : []);
+  U.rows = function () {
+    if (!host()) return [];
+    const rows = [{ label: t('Check for Updates…'), action: () => { U.checkNow(); } }];
+    if (newer()) rows.push({ label: t('Update to {0}…', info.latest), action: () => U.open() });
+    return rows;
+  };
+
+  /**
+   * "Check for Updates…": the host reads its channel now (not the answer kept from its last read). A newer release
+   * opens its dialog (Update Now is one press away); otherwise a short dialog says it is the latest, or that the
+   * channel could not be read.
+   */
+  let checking = null;
+  U.checkNow = function () {
+    const H = host();
+    if (!H) return Promise.resolve(null);
+    if (checking) return checking;
+    const ask = typeof H.checkNow === 'function' ? H.checkNow : H.check;
+    const status = h('div.g-update-status', { id: 'g-update-status', role: 'status', 'aria-live': 'polite' }, t('Checking…'));
+    const d = Git.dialog({ title: t('Check for Updates'), width: 420, className: 'g-update-check', content: h('div.g-update', status), buttons: [{ label: t('Close') }] });
+    // `checked`: how this read went; a read that did not get through keeps the host's last answer, so "latest" would
+    // only be what an older read said
+    checking = Promise.resolve().then(() => ask()).then((next) => ({ state: U.apply(next), read: !next || next.checked === undefined || next.checked === 'ok' }),
+      () => ({ state: 'unknown', read: false })).then(({ state, read }) => {
+      checking = null;
+      if (state === 'available' || state === 'required') {
+        try { d.close(); } catch (e) { /* closed already */ }
+        return U.open();
+      }
+      status.textContent = state === 'current' && read ? t('You have the latest version, {0} {1}.', Git.product(), info.current) : t('Could not check for updates. Try again later.');
+      return d;
+    });
+    return checking;
+  };
 
   /** After an update the page starts again on the new release's files (a frame that refuses stays, and says "reopen"). */
   U.reload = () => { setTimeout(() => { try { location.reload(); } catch (e) { /* the frame may refuse */ } }, 600); };
@@ -9308,7 +9363,7 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
       if (busy || typeof H.run !== 'function') return;
       busy = true;
       button.disabled = true;
-      say(t('Updating…'));
+      say(t('Updating… This can take a minute or two.'));
       let result = 'lost';       // no answer: the host may have replaced the product under this page
       try { const r = await H.run(); result = r && typeof r.result === 'string' ? r.result : 'failed'; } catch (e) { result = 'lost'; }
       // the new release answers with its own version once the host has swapped it in
@@ -9322,6 +9377,7 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
       button.disabled = false;
       // 'done' without a new version: the host answered, its catalog offers nothing newer yet (the steps say how to refresh it)
       const why = result === 'approval' ? t('The update needs your approval because it asks for new access.')
+        : result === 'current' ? t('You already have the latest version.')
         : result === 'done' ? t('No newer version was found yet.') : t('The update could not be installed from here.');
       say(why + ' ' + t('Still version {0}.', was || '?'));
     }
@@ -13717,6 +13773,37 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     }, () => { if (my === ign.seq) { ign.list = []; C.refresh(); } });
   }
 
+  // ---------------------------------------------------------------- the Changes row's "+120 −34" (changes.lineStats)
+  // path → [added, deleted] (nulls: binary). Read on its own, after the snapshot, only while there are changes.
+  const LINES_MAX_FILES = 5000;                         // more local changes than this: no line counts (a costly diff)
+  const lines = { root: null, map: null, seq: 0, timer: 0 };
+  function loadLines() {
+    clearTimeout(lines.timer);
+    const g = sets();
+    if (!R.root || !g.changes.length || g.changes.length > LINES_MAX_FILES || R.localTruncated) {
+      lines.seq++;
+      if (lines.map) { lines.map = null; C.refresh(); }
+      return;
+    }
+    const my = ++lines.seq, root = R.root;
+    Git.backend.call('changes.lineStats', { repo: root }).then((res) => {
+      if (my !== lines.seq || root !== R.root) return;
+      const map = new Map();
+      res.files.forEach((f) => map.set(f.path, [f.added, f.deleted]));
+      lines.root = root; lines.map = map;
+      C.refresh();
+    }, () => { if (my === lines.seq) { lines.map = null; C.refresh(); } });
+  }
+  const loadLinesSoon = () => { clearTimeout(lines.timer); lines.timer = setTimeout(loadLines, 300); };
+  /** "+120 −34" for the files of the Changes group, or null (not read yet, only binary files, nothing counted). */
+  function linesNode(files) {
+    if (!lines.map || lines.root !== R.root) return null;
+    let add = 0, del = 0;
+    files.forEach((f) => { const n = lines.map.get(f.path); if (n && n[0] != null) { add += n[0]; del += n[1]; } });
+    if (!add && !del) return null;
+    return h('span.gc-lines', h('span.gc-lines-add', '+' + add), ' ', h('span.gc-lines-del', '−' + del));
+  }
+
   function nodes() {
     const g = sets(), all = g.conflicts.concat(g.changes), out = [];
     if (!all.length) out.push({ id: 'changes', kind: 'none', label: t('Changes'), bold: true });
@@ -13727,7 +13814,8 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
           right: h('button.g-link.gc-resolve', { type: 'button', id: 'gc-resolve', onclick: (e) => { e.stopPropagation(); Git.actions.resolveFromCommitView(); } }, t('Resolve')),
           data: { files: g.conflicts } });
       }
-      out.push({ id: 'changes', kind: 'group', label: t('Changes'), bold: true, dim: countText(all.length), checked: tri(g.changes.length ? g.changes : all),
+      const stat = linesNode(g.changes);
+      out.push({ id: 'changes', kind: 'group', label: t('Changes'), bold: true, dim: stat ? h('span', countText(all.length), stat) : countText(all.length), checked: tri(g.changes.length ? g.changes : all),
         children: kids.concat(fileNodes(g.changes, 'f')), data: { files: all } });
     }
     const amend = amendNode();
@@ -13842,6 +13930,7 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
     if (Git.store && Git.store.refresh) Git.store.refresh();
     C.follow();
     loadIgnored();
+    loadLinesSoon();
     C.refresh();
   }
   /** The path of the active editor tab (a local diff or the file view), for Select Opened File. */
@@ -13988,6 +14077,7 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
       build(el);
       C.follow();
       loadIgnored();
+      loadLines();
       C.refresh();
       const edge = watchColumn(el);
       let soon = 0;
@@ -13996,7 +14086,10 @@ window.Git.ICONS = {"general/add":"<svg width=\"16\" height=\"16\" viewBox=\"0 0
           if (ev && ev.reason === 'log' && !S().amend) { C.updateBottom(); return; }
           C.follow(); C.refresh();
           if (ign.on && ev && (ev.reason !== 'log')) { clearTimeout(soon); soon = setTimeout(loadIgnored, 300); }
+          if (ev && ev.reason !== 'log') loadLinesSoon();
         }),
+        // a changed file's content moved (the snapshot stays the same while a modified file is edited again)
+        Git.on('files', (ev) => { if (!ev || !ev.paths || ev.paths.some((p) => local(p))) loadLinesSoon(); }),
         Git.on('commit-message', (text) => { S().amend = false; S().amendInfo = null; S().error = null; C.setMessage(text, true); C.refresh(); if (C.ui) C.ui.msg.focus(); }),
         Git.on('right', () => setTimeout(edge, 0)),
         Git.on('included', (ev) => { if (!(ev && ev.from === 'commit')) C.refresh(); }),

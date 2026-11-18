@@ -798,8 +798,6 @@ body { background: var(--g-panel); color: var(--g-text); overflow: hidden; }
 .wb-wt, .wb-single .wb-wt { flex: none; gap: 5px; padding: 0 7px; font-weight: 600; white-space: nowrap; }   /* never squeezed: it is short */
 .wb-wt-ic { position: relative; display: inline-flex; flex: none; }
 .wb-wt-word { font-size: 11px; font-weight: 600; letter-spacing: .3px; color: var(--g-dim); }
-.wb-wt-dot { position: absolute; top: 0; right: -5px; width: 6px; height: 6px; border-radius: 50%; background: var(--g-accent); box-shadow: 0 0 0 1.5px var(--g-panel); }
-.wb-wt-ic:has(> .wb-wt-dot:not([hidden])) { margin-right: 3px; }
 .wb-wt-n { font-variant-numeric: tabular-nums; }
 .cm-title.cm-bold { font-weight: 600; }
 .cm-hint { flex: 0 100 auto; min-width: 0; color: var(--shell-text); }
@@ -1113,6 +1111,9 @@ body { background: var(--g-panel); color: var(--g-text); overflow: hidden; }
 .gc-tree .g-row-label { flex: 0 1 auto; }
 .gc-tree .g-row-dim { text-overflow: clip; flex-shrink: 1000000; }      /* the path gives way first, cut without "…"; so large that the name loses no sub-pixel */
 .gc-tree .g-row.k-group .g-row-dim, .gc-tree .g-row.k-dir .g-row-dim { flex-shrink: 0; }     /* a count stays whole; the name gives way */
+.gc-lines { margin-left: 10px; }                                         /* the Changes row: "5 files  +120 −34" */
+.gc-lines-add { color: var(--g-added); }
+.gc-lines-del { color: var(--g-error); }
 .gc-rb-tree .g-row-dim { text-overflow: clip; flex-shrink: 1000000; }
 .gc-tree .g-row.k-none { padding-left: 12px !important; }
 .gc-tree .g-row.k-none .g-row-chev { display: none; }

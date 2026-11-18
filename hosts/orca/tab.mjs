@@ -5,9 +5,14 @@
 // marker per repository, `.git/git-panel/Diff.gitpanel` ({"view":"diff"}): written once when missing, never rewritten,
 // never deleted (Orca tells a plugin nothing when a tab closes, so a file per opening would pile up). What the tab
 // shows lives here, per repository root: the current opener, in memory and in <home>/orca-tabs.json (a worker or Orca
-// restart keeps it). Only for a repository whose root IS the workspace folder and whose `.git` is a directory: a
-// linked worktree (`.git` is a file) or a repository below the workspace gets no note and no tab, nothing is ever
-// written into a working tree, and the panel opens it itself. A panel of such a workspace that shows another worktree
+// restart keeps it). Only for a repository whose root IS the workspace folder; a repository below the workspace gets
+// no note and no tab, and the panel opens it itself.
+// A linked worktree (`.git` is a file) has no `.git` folder to hold the note, and Orca opens only a file inside the
+// workspace that exists (`..` is refused; a missing file is "ENOENT", measured 18 Nov 2026). There the note is
+// `.git-panel/Diff.gitpanel` in the worktree folder, hidden from git by a line `/.git-panel/` in the repository's own
+// `info/exclude` (local to the machine, never committed, shared by all its worktrees), written before the note so the
+// note never shows as untracked (the owner, 18 Nov 2026: "yap", after a commit's diff opened in the side panel of a
+// worktree workspace). A panel of a workspace that shows another worktree
 // of the repository (ui/git/worktrees.js) still gets the tab: `opener.worktree` names that worktree, `root` stays the
 // workspace folder, and the tab's frame shows the worktree before it runs the opener (hosts/orca/editor.js).
 //   tab.open    { workspaceId, root, opener: { name, args, worktree? } } -> { taken: true } | { taken: false, reason }
@@ -22,6 +27,9 @@ import { PRODUCT } from './product.mjs';
 import { isLocalHost } from './workspace.mjs';
 
 export const NOTE_REL = '.git/' + PRODUCT.id + '/Diff' + PRODUCT.noteExt;
+/** The note of a linked worktree, and the line of `info/exclude` that hides its folder. */
+export const WT_NOTE_REL = '.' + PRODUCT.id + '/Diff' + PRODUCT.noteExt;
+export const WT_EXCLUDE = '/.' + PRODUCT.id + '/';
 export const NOTE_TEXT = '{"view":"diff"}\n';
 const STORE = 'orca-tabs.json';
 const CAP = 50;
@@ -82,14 +90,34 @@ export function cleanSpec(s) {
 }
 
 const real = (p) => { try { return fs.realpathSync(p); } catch (e) { return null; } };
-/** Where the note goes for workspace folder `ws` and repository `root`, or null when it must not be written. */
+/**
+ * Where the note goes for workspace folder `ws` and repository `root`: { dir, rel, exclude } (`rel`: the path Orca
+ * opens, relative to the workspace; `exclude`: the `info/exclude` file to hide it in, for a linked worktree), or null
+ * when it must not be written.
+ */
 export function noteDir(ws, root) {
   const a = real(ws), b = real(root);
   if (!a || !b || a !== b) return null;                               // the repository root is the workspace folder
   let st;
   try { st = fs.lstatSync(path.join(a, '.git')); } catch (e) { return null; }
-  if (!st.isDirectory()) return null;                                 // a linked worktree's `.git` is a file
-  return path.join(a, '.git', PRODUCT.id);
+  if (st.isDirectory()) return { dir: path.join(a, '.git', PRODUCT.id), rel: NOTE_REL, exclude: null };
+  if (!st.isFile()) return null;
+  // a linked worktree: `.git` says `gitdir: <common>/worktrees/<name>`, whose `commondir` names the common folder
+  const common = commonDir(a);
+  if (!common) return null;
+  return { dir: path.join(a, path.dirname(WT_NOTE_REL)), rel: WT_NOTE_REL, exclude: path.join(common, 'info', 'exclude') };
+}
+/** The common git folder of the linked worktree at `wt` (from the files git keeps, no git process), or null. */
+export function commonDir(wt) {
+  try {
+    const m = /^gitdir: (.+)$/m.exec(fs.readFileSync(path.join(wt, '.git'), 'utf8'));
+    if (!m) return null;
+    const gitdir = path.resolve(wt, m[1].trim());
+    let common = path.dirname(path.dirname(gitdir));                  // <common>/worktrees/<name>
+    try { common = path.resolve(gitdir, fs.readFileSync(path.join(gitdir, 'commondir'), 'utf8').trim()); } catch (e) { /* the layout above */ }
+    const r = real(common);
+    return r && fs.lstatSync(path.join(r, 'HEAD')).isFile() && path.basename(path.dirname(gitdir)) === 'worktrees' ? r : null;
+  } catch (e) { return null; }
 }
 /**
  * `wt` as a real path when it is a linked worktree of the repository at `root`: its `.git` file names a folder right
@@ -110,10 +138,23 @@ export function linkedWorktree(root, wt) {
   const gitdir = real(path.resolve(b, m[1].trim())), store = real(path.join(a, '.git', 'worktrees'));
   return gitdir && store && path.dirname(gitdir) === store ? b : null;
 }
-/** Writes the marker when it is missing; an existing file is never touched. */
-export function ensureNote(dir) {
-  fs.mkdirSync(dir, { recursive: true });
-  try { fs.writeFileSync(path.join(dir, path.basename(NOTE_REL)), NOTE_TEXT, { flag: 'wx' }); } catch (e) { if (e.code !== 'EEXIST') throw e; }
+/**
+ * Writes the marker when it is missing; an existing file is never touched. `note`: noteDir's answer (or a folder, as
+ * before). For a linked worktree the exclude line comes first: it is appended once to `info/exclude` (what is there
+ * stays), so the note is never seen by git.
+ */
+export function ensureNote(note) {
+  const n = typeof note === 'string' ? { dir: note, rel: NOTE_REL, exclude: null } : note;
+  if (n.exclude) {
+    let text = '';
+    try { text = fs.readFileSync(n.exclude, 'utf8'); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+    if (!text.split(/\r?\n/).some((l) => l.trim() === WT_EXCLUDE)) {
+      fs.mkdirSync(path.dirname(n.exclude), { recursive: true });
+      fs.appendFileSync(n.exclude, (text && !text.endsWith('\n') ? '\n' : '') + '# ' + PRODUCT.name + ': the marker its editor tab opens\n' + WT_EXCLUDE + '\n');
+    }
+  }
+  fs.mkdirSync(n.dir, { recursive: true });
+  try { fs.writeFileSync(path.join(n.dir, path.basename(n.rel)), NOTE_TEXT, { flag: 'wx' }); } catch (e) { if (e.code !== 'EEXIST') throw e; }
 }
 
 /** `host`: orca.host; `home`: core/home.js store; `bridge`: hosts/orca/bridge.mjs; `now`: the clock (tests). */
@@ -149,8 +190,8 @@ export function createTabs({ host, home, bridge, log = () => {}, now = Date.now 
       ws = (list && list.workspaces || []).find((w) => w && w.id === workspaceId);
     } catch (e) { return no('workspace'); }
     if (!ws || !isLocalHost(ws) || typeof ws.path !== 'string' || !path.isAbsolute(ws.path)) return no('workspace');
-    const dir = noteDir(ws.path, input.root);
-    if (!dir) return no('folder');
+    const note = noteDir(ws.path, input.root);
+    if (!note) return no('folder');
     const root = real(input.root);
     // A panel that shows another worktree of the repository (ui/git/worktrees.js) names it: the tab is still the
     // workspace folder's, and shows that worktree. Only a linked worktree of this very repository counts.
@@ -159,11 +200,11 @@ export function createTabs({ host, home, bridge, log = () => {}, now = Date.now 
       if (!wt) return no('worktree');
       spec.worktree = wt;
     }
-    try { ensureNote(dir); } catch (e) { return no('note'); }
+    try { ensureNote(note); } catch (e) { log('tab: cannot write the note (' + ((e && e.code) || e) + ')'); return no('note'); }
     remember(root, spec);
     bridge.broadcast('tab', 'tab', { root, opener: spec });  // a tab that is open shows it at once
     try {
-      await host.call('editor.open', { workspaceId, path: NOTE_REL });
+      await host.call('editor.open', { workspaceId, path: note.rel });
     } catch (e) {
       log('tab: editor.open refused (' + ((e && e.code) || e) + ')');
       return no('editor');

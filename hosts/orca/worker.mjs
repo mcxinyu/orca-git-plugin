@@ -5,7 +5,7 @@
 //   workspace · workspace.choose · workspace.raw     the focused workspace as a local folder (workspace.mjs)
 //   diagnostics                                      what a problem report carries: kinds and counts (diagnostics.mjs)
 //   report.picture.put · .clear · .copy              a report's screenshot, on its way to the clipboard (picture.mjs)
-//   update.state · update.run                        is a newer release out, must it be taken; take it (update.mjs)
+//   update.state · update.check · update.run         is a newer release out (kept / read now); take it (update.mjs)
 //   openFile                                         a repository file in Orca's editor (editor.open)
 //   note                                             a panel's diagnostics line for the plugin log (panel.js)
 //   tab.open · tab.current                           a diff in Orca's center area (tab.mjs)
@@ -138,7 +138,15 @@ export function start(orca, opts = {}) {
     ...(uo.everyMs ? { everyMs: uo.everyMs } : {}), ...(uo.retryMs ? { retryMs: uo.retryMs } : {}) });
   const updater = createUpdater({ cli: uo.cli || (() => cliPath()), key: ownKey(), log, spawnFn: uo.spawnFn, timeoutMs: uo.timeoutMs });
   handle('update.state', () => update.read());
-  handle('update.run', () => updater.run());
+  // "Check for Updates…" (the Options menu): the channel read now, not the answer kept from the last read
+  handle('update.check', () => update.check());
+  // "Update Now": Orca's own `plugin update` (update.mjs updateArgs); a channel read now that says this is the newest
+  // runs nothing
+  handle('update.run', async () => {
+    const v = await update.check();
+    if (v.state === 'current') return { result: 'current' };
+    return updater.run();
+  });
   update.start();
 
   // ---- the status bar item and its command (statusbar.mjs, showpanel.mjs; README "Status bar")
@@ -224,7 +232,7 @@ export function start(orca, opts = {}) {
     let more = [];
     try { more = [runtimeLine({ startedAt, clients: bridge.clients(), engine })].concat(activity.lines()); } catch (e) { more = []; }
     const u = update.view();
-    more.push('update: ' + u.state + ', channel ' + u.checked);
+    more.push('update: ' + u.state + ', catalog ' + u.checked + ', channel ' + u.channel);
     // and the detailed log (journal.mjs): the worker over time, the engine, the panels, tables and the timeline
     let detail = { head: [], tail: [] };
     try { detail = journal.detail(); } catch (e) { detail = { head: ['[worker] not readable'], tail: [] }; }
